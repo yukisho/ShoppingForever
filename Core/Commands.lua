@@ -5,6 +5,8 @@ local function ShowHelp()
     SF:Print("/sf add ITEM_LINK [QUANTITY] - add an item to the selected list")
     SF:Print("/sf new NAME - create and select a list")
     SF:Print("/sf own | buy - set the add mode")
+    SF:Print("/sf history - show acquisition history for the selected list")
+    SF:Print("/sf undo - undo the latest acquisition for the selected list")
 end
 
 local function HandleCommand(message)
@@ -27,6 +29,17 @@ local function HandleCommand(message)
             SF.targetModeButton:SetText(command == "own" and "Own Total" or "Buy More")
         end
         SF:Print("New entries will use " .. (command == "own" and "Own Total." or "Buy More."))
+    elseif command == "history" then
+        SF:ShowWindow()
+        SF:ShowHistoryWindow()
+    elseif command == "undo" then
+        local list = SF:GetCurrentList()
+        local ok, result, quantity = SF:UndoLastAcquisition(list and list.id)
+        if ok then
+            SF:Print("Undid " .. quantity .. " acquired " .. (result.itemName or "item") .. ".")
+        else
+            SF:Print(result)
+        end
     elseif command == "add" then
         local itemInfo, quantity = argument:match("^(.-)%s+(%d+)%s*$")
         if not itemInfo or itemInfo == "" then itemInfo, quantity = argument, 1 end

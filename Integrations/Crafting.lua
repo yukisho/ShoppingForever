@@ -145,6 +145,115 @@ function SF:GetCraftingSources(itemID)
     return result
 end
 
+local function GetOutstandingListQuantity(itemID)
+    local list = SF:GetCurrentList()
+    local outstanding = 0
+    if not list then return outstanding end
+    for _, entry in ipairs(list.items) do
+        if entry.itemID == itemID then
+            local _, remaining, completed = SF:GetItemProgress(entry)
+            if not completed then outstanding = math.max(outstanding, remaining) end
+        end
+    end
+    return outstanding
+end
+
+function SF:GetRecipeReagentPlan(item)
+    if type(item) ~= "table" then return nil end
+    local sources = self:GetCraftingSources(item.itemID)
+    local source = sources.current or sources.alts[1]
+    if not source or type(source.reagents) ~= "table" or #source.reagents == 0 then return nil end
+
+    local _, remaining, completed = self:GetItemProgress(item)
+    if completed then remaining = 0 end
+    local outputQuantity = math.max(1, tonumber(source.outputQuantity) or 1)
+    local crafts = math.floor((remaining + outputQuantity - 1) / outputQuantity)
+    local combined = {}
+    for _, reagent in ipairs(source.reagents) do
+        local reagentID = tonumber(reagent.itemID)
+        local perCraft = math.max(0, tonumber(reagent.quantity) or 0)
+        if reagentID and perCraft > 0 then
+            local key = tostring(reagentID)
+            local entry = combined[key] or { itemID = reagentID, perCraft = 0 }
+            entry.perCraft = entry.perCraft + perCraft
+            combined[key] = entry
+        end
+    end
+
+    local reagents = {}
+    local totalToAdd = 0
+    for _, reagent in pairs(combined) do
+        reagent.required = reagent.perCraft * crafts
+        reagent.owned = self:GetOwnedCount(reagent.itemID)
+        reagent.missing = math.max(0, reagent.required - reagent.owned)
+        reagent.alreadyListed = GetOutstandingListQuantity(reagent.itemID)
+        reagent.toAdd = math.max(0, reagent.missing - reagent.alreadyListed)
+        local resolved = self.Model:ResolveItem(reagent.itemID)
+        reagent.name = resolved and resolved.name or ("Item #" .. reagent.itemID)
+        reagent.itemLink = resolved and resolved.itemLink or nil
+        reagent.icon = resolved and resolved.icon or nil
+        totalToAdd = totalToAdd + reagent.toAdd
+        reagents[#reagents + 1] = reagent
+    end
+    table.sort(reagents, function(left, right)
+        return tostring(left.name) < tostring(right.name)
+    end)
+
+    return {
+        source = source,
+        currentCharacter = sources.current ~= nil,
+        crafts = crafts,
+        outputQuantity = outputQuantity,
+        reagents = reagents,
+        totalToAdd = totalToAdd,
+    }
+end
+
+function SF:AddMissingRecipeReagents(item)
+    local plan = self:GetRecipeReagentPlan(item)
+    if not plan then return false, "No known recipe with fixed reagents is available." end
+    if plan.crafts <= 0 then return false, "This item is already complete." end
+    if plan.totalToAdd <= 0 then return false, "The missing reagents are already owned or listed." end
+
+    local list = self:GetCurrentList()
+    if not list then return false, "No list is selected." end
+    local newEntries = 0
+    for _, reagent in ipairs(plan.reagents) do
+        if reagent.toAdd > 0 then
+            if reagent.toAdd > self.Model.MAX_QUANTITY then
+                return false, reagent.name .. " exceeds the per-entry quantity limit."
+            end
+            local existing
+            for _, entry in ipairs(list.items) do
+                if entry.itemID == reagent.itemID and entry.targetMode == "buy" then
+                    existing = entry
+                    break
+                end
+            end
+            if existing then
+                if existing.desired + reagent.toAdd > self.Model.MAX_QUANTITY then
+                    return false, reagent.name .. " would exceed the per-entry quantity limit."
+                end
+            else
+                newEntries = newEntries + 1
+            end
+        end
+    end
+    if #list.items + newEntries > self.Model.MAX_ITEMS_PER_LIST then
+        return false, "There is not enough room on this list for every missing reagent."
+    end
+
+    local added = 0
+    for _, reagent in ipairs(plan.reagents) do
+        if reagent.toAdd > 0 then
+            local ok, result = self:AddItem(reagent.itemID, reagent.toAdd, "buy")
+            if not ok then return false, result end
+            added = added + reagent.toAdd
+        end
+    end
+    return true, added, plan
+end
+
 function SF:OpenCraftingRecipe(source)
     if not source or not C_TradeSkillUI then return false end
     if C_TradeSkillUI.OpenTradeSkill and source.skillLineID then

@@ -2,8 +2,8 @@ local ADDON_NAME, SF = ...
 
 SF.name = ADDON_NAME
 SF.displayName = "Shopping Forever"
-SF.version = "0.1.0"
-SF.schemaVersion = 1
+SF.version = "0.3.0"
+SF.schemaVersion = 3
 SF.callbacks = {}
 
 local function IsSecret(value)

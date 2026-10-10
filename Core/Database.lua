@@ -16,6 +16,9 @@ local function NewDatabase()
         nextListID = 2,
         nextItemID = 1,
         selectedListID = 1,
+        selectedListByCharacter = {},
+        nextHistoryID = 1,
+        history = {},
         lists = { NewDefaultList() },
         characters = {},
         vendorCatalog = {},
@@ -23,12 +26,14 @@ local function NewDatabase()
             autoOpenAuctionHouse = true,
             autoOpenMerchant = true,
             autoOpenProfession = true,
+            filterMode = "all",
+            sortMode = "added",
             window = {
                 point = "CENTER",
                 relativePoint = "CENTER",
                 x = 0,
                 y = 0,
-                width = 560,
+                width = 680,
                 height = 520,
             },
         },
@@ -62,11 +67,14 @@ local function NormalizeDatabase(database)
     database.schemaVersion = SF.schemaVersion
     database.lists = type(database.lists) == "table" and database.lists or {}
     database.characters = type(database.characters) == "table" and database.characters or {}
+    database.selectedListByCharacter = type(database.selectedListByCharacter) == "table"
+        and database.selectedListByCharacter or {}
+    database.history = type(database.history) == "table" and database.history or {}
     database.vendorCatalog = type(database.vendorCatalog) == "table" and database.vendorCatalog or {}
     database.settings = type(database.settings) == "table" and database.settings or {}
     database.settings.window = type(database.settings.window) == "table" and database.settings.window or {}
 
-    local highestListID, highestItemID = 0, 0
+    local highestListID, highestItemID, highestHistoryID = 0, 0, 0
     local normalizedLists = {}
     for _, list in ipairs(database.lists) do
         if type(list) == "table" then
@@ -101,6 +109,30 @@ local function NormalizeDatabase(database)
     database.lists = normalizedLists
     database.nextListID = math.max(highestListID + 1, tonumber(database.nextListID) or 1)
     database.nextItemID = math.max(highestItemID + 1, tonumber(database.nextItemID) or 1)
+
+    local normalizedHistory = {}
+    for _, entry in ipairs(database.history) do
+        if type(entry) == "table" and tonumber(entry.listID) and tonumber(entry.itemID)
+            and tonumber(entry.quantity)
+        then
+            entry.id = SF.util.ClampWholeNumber(entry.id, 1, nil, highestHistoryID + 1)
+            entry.listID = math.floor(tonumber(entry.listID))
+            entry.itemID = math.floor(tonumber(entry.itemID))
+            entry.quantity = SF.util.ClampWholeNumber(entry.quantity, 1, SF.Model.MAX_QUANTITY, 1)
+            entry.source = type(entry.source) == "string" and entry.source or "unknown"
+            entry.itemName = type(entry.itemName) == "string" and entry.itemName
+                or ("Item #" .. entry.itemID)
+            entry.itemLink = type(entry.itemLink) == "string" and entry.itemLink or nil
+            entry.timestamp = tonumber(entry.timestamp) or 0
+            entry.allocations = type(entry.allocations) == "table" and entry.allocations or {}
+            entry.undoneAt = tonumber(entry.undoneAt)
+            entry.undoneQuantity = tonumber(entry.undoneQuantity)
+            normalizedHistory[#normalizedHistory + 1] = entry
+            highestHistoryID = math.max(highestHistoryID, entry.id)
+        end
+    end
+    database.history = normalizedHistory
+    database.nextHistoryID = math.max(highestHistoryID + 1, tonumber(database.nextHistoryID) or 1)
 
     local selectedExists = false
     for _, list in ipairs(database.lists) do
@@ -160,8 +192,97 @@ function SF:SelectList(listID)
     local list = self:FindList(listID)
     if not list then return false, "List not found." end
     self.db.selectedListID = list.id
+    if self.currentCharacter and self.currentCharacter.guid then
+        self.db.selectedListByCharacter[self.currentCharacter.guid] = list.id
+    end
     self:NotifyChanged("listSelected", { listID = list.id })
     return true, list
+end
+
+function SF:SetListNote(listID, note)
+    local list = self:FindList(listID)
+    if not list then return false, "List not found." end
+    note = SF.util.Trim(tostring(note or ""))
+    if #note > 255 then return false, "List notes can be at most 255 characters." end
+    list.note = note
+    self:NotifyChanged("listNoteChanged", { listID = list.id })
+    return true, list
+end
+
+function SF:IsListRelevantToCurrentCharacter(list)
+    if type(list) ~= "table" then return false end
+    local assignments = list.assignedCharacters
+    if type(assignments) ~= "table" or next(assignments) == nil then return true end
+    local guid = self.currentCharacter and self.currentCharacter.guid
+    return guid ~= nil and assignments[guid] == true
+end
+
+function SF:ToggleCurrentCharacterAssignment(listID)
+    local list = self:FindList(listID)
+    local guid = self.currentCharacter and self.currentCharacter.guid
+    if not list then return false, "List not found." end
+    if not guid then return false, "The current character is not available yet." end
+
+    list.assignedCharacters = type(list.assignedCharacters) == "table" and list.assignedCharacters or {}
+    if next(list.assignedCharacters) == nil then
+        list.assignedCharacters[guid] = true
+    elseif list.assignedCharacters[guid] then
+        list.assignedCharacters[guid] = nil
+    else
+        list.assignedCharacters[guid] = true
+    end
+    self:NotifyChanged("listAssignmentChanged", { listID = list.id, characterGUID = guid })
+    return true, list.assignedCharacters[guid] == true
+end
+
+function SF:GetListAssignmentText(list)
+    if type(list) ~= "table" or type(list.assignedCharacters) ~= "table"
+        or next(list.assignedCharacters) == nil
+    then
+        return "All characters"
+    end
+    local names = {}
+    for guid, assigned in pairs(list.assignedCharacters) do
+        if assigned then
+            local character = self.db.characters[guid]
+            names[#names + 1] = character and character.name or "Unknown"
+        end
+    end
+    table.sort(names)
+    return #names > 0 and table.concat(names, ", ") or "All characters"
+end
+
+function SF:SelectBestListForCurrentCharacter()
+    if not self.db or not self.currentCharacter then return end
+    local guid = self.currentCharacter.guid
+    local remembered = self.db.selectedListByCharacter[guid]
+    local rememberedList = remembered and self:FindList(remembered) or nil
+    if rememberedList and self:IsListRelevantToCurrentCharacter(rememberedList) then
+        self.db.selectedListID = rememberedList.id
+        return rememberedList
+    end
+
+    local globalList
+    for _, list in ipairs(self.db.lists) do
+        if list.assignedCharacters[guid] then
+            self.db.selectedListID = list.id
+            self.db.selectedListByCharacter[guid] = list.id
+            return list
+        elseif not globalList and next(list.assignedCharacters) == nil then
+            globalList = list
+        end
+    end
+    local selected = self:FindList(self.db.selectedListID)
+    if selected and self:IsListRelevantToCurrentCharacter(selected) then
+        self.db.selectedListByCharacter[guid] = selected.id
+        return selected
+    end
+    local fallback = globalList or self.db.lists[1]
+    if fallback then
+        self.db.selectedListID = fallback.id
+        self.db.selectedListByCharacter[guid] = fallback.id
+    end
+    return fallback
 end
 
 function SF:AddList(name)
@@ -187,6 +308,9 @@ function SF:AddList(name)
     self.db.nextListID = self.db.nextListID + 1
     self.db.lists[#self.db.lists + 1] = list
     self.db.selectedListID = list.id
+    if self.currentCharacter and self.currentCharacter.guid then
+        self.db.selectedListByCharacter[self.currentCharacter.guid] = list.id
+    end
     self:NotifyChanged("listAdded", { listID = list.id })
     return true, list
 end
@@ -214,6 +338,14 @@ function SF:DeleteList(listID)
         if list.id == tonumber(listID) then
             table.remove(self.db.lists, index)
             self.db.selectedListID = self.db.lists[math.min(index, #self.db.lists)].id
+            for guid, selectedListID in pairs(self.db.selectedListByCharacter) do
+                if selectedListID == list.id then
+                    self.db.selectedListByCharacter[guid] = nil
+                end
+            end
+            if self.currentCharacter and self.currentCharacter.guid then
+                self.db.selectedListByCharacter[self.currentCharacter.guid] = self.db.selectedListID
+            end
             self:NotifyChanged("listDeleted", { listID = list.id })
             return true
         end
@@ -224,9 +356,6 @@ end
 function SF:AddItem(itemInfo, quantity, targetMode)
     local list = self:GetCurrentList()
     if not list then return false, "No list is selected." end
-    if #list.items >= self.Model.MAX_ITEMS_PER_LIST then
-        return false, "This list has reached its item limit."
-    end
 
     local normalizedQuantity, quantityError = self.Model:NormalizeQuantity(quantity)
     if not normalizedQuantity then return false, quantityError end
@@ -236,10 +365,17 @@ function SF:AddItem(itemInfo, quantity, targetMode)
 
     for _, existing in ipairs(list.items) do
         if existing.itemID == resolved.itemID and existing.targetMode == targetMode then
-            existing.desired = math.min(self.Model.MAX_QUANTITY, existing.desired + normalizedQuantity)
+            if existing.desired + normalizedQuantity > self.Model.MAX_QUANTITY then
+                return false, "The combined quantity would exceed " .. self.Model.MAX_QUANTITY .. "."
+            end
+            existing.desired = existing.desired + normalizedQuantity
             self:NotifyChanged("itemMerged", { listID = list.id, itemID = existing.id })
             return true, existing, true
         end
+    end
+
+    if #list.items >= self.Model.MAX_ITEMS_PER_LIST then
+        return false, "This list has reached its item limit."
     end
 
     local item = {
@@ -284,10 +420,46 @@ function SF:AdjustAcquired(itemEntryID, amount)
     if not item then return false, "Item not found." end
     if item.targetMode ~= "buy" then return false, "Only Buy More entries track acquisitions." end
     amount = SF.util.ClampWholeNumber(amount, -self.Model.MAX_QUANTITY, self.Model.MAX_QUANTITY, 0)
+    local previous = item.acquired
     item.acquired = math.max(0, math.min(self.Model.MAX_QUANTITY, item.acquired + amount))
+    local applied = item.acquired - previous
     if item.acquired < item.desired then item.manualCompleted = false end
+    if applied > 0 and self.AddAcquisitionHistory then
+        self:AddAcquisitionHistory(list, item, applied, "manual", {
+            { itemEntryID = item.id, quantity = applied },
+        })
+    end
     self:NotifyChanged("itemAcquiredChanged", { listID = list.id, itemID = item.id })
     return true
+end
+
+function SF:UpdateItem(itemEntryID, desired, targetMode, preferredSource)
+    local item, list = self:FindItem(itemEntryID)
+    if not item then return false, "Item not found." end
+    local normalizedQuantity, quantityError = self.Model:NormalizeQuantity(desired)
+    if not normalizedQuantity then return false, quantityError end
+    targetMode = self.Model:NormalizeTargetMode(targetMode)
+    preferredSource = self.Model:NormalizeSourceMode(preferredSource)
+
+    if targetMode ~= item.targetMode then
+        for _, existing in ipairs(list.items) do
+            if existing.id ~= item.id and existing.itemID == item.itemID
+                and existing.targetMode == targetMode
+            then
+                return false, "That item already has a "
+                    .. (targetMode == "own" and "Own Total" or "Buy More") .. " entry."
+            end
+        end
+        item.targetMode = targetMode
+        item.acquired = 0
+        item.manualCompleted = false
+    end
+
+    item.desired = normalizedQuantity
+    item.preferredSource = preferredSource
+    if item.acquired > item.desired then item.acquired = item.desired end
+    self:NotifyChanged("itemUpdated", { listID = list.id, itemID = item.id })
+    return true, item
 end
 
 function SF:RefreshItemInformation(itemID)
@@ -317,4 +489,5 @@ function SF:UpdateCurrentCharacter()
     character.recipes = type(character.recipes) == "table" and character.recipes or {}
     self.db.characters[guid] = character
     self.currentCharacter = character
+    self:SelectBestListForCurrentCharacter()
 end
