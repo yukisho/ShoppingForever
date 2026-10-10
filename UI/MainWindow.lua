@@ -365,6 +365,10 @@ function SF:CreateItemAutocomplete()
     dropdown:SetSize(360, 8 + (AUTOCOMPLETE_ROW_COUNT * AUTOCOMPLETE_ROW_HEIGHT))
     dropdown:SetFrameStrata("TOOLTIP")
     dropdown:SetClampedToScreen(true)
+    dropdown:EnableMouse(true)
+    dropdown:SetScript("OnLeave", function()
+        if not SF.itemInput:HasFocus() then SF:HideItemAutocomplete() end
+    end)
     dropdown:Hide()
     dropdown.rows = {}
 
@@ -397,7 +401,9 @@ function SF:CreateItemAutocomplete()
         row.itemID:SetJustifyH("RIGHT")
 
         row:SetScript("OnEnter", function() SF:SetItemAutocompleteSelection(rowIndex) end)
-        row:SetScript("OnClick", function() SF:AcceptItemAutocomplete(rowIndex) end)
+        row:SetScript("OnMouseDown", function(_, button)
+            if button == "LeftButton" then SF:AcceptItemAutocomplete(rowIndex) end
+        end)
         dropdown.rows[index] = row
     end
 
@@ -1546,6 +1552,11 @@ function SF:CreateMainWindow()
     end)
     self.itemInput:SetScript("OnEditFocusGained", function() SF:QueueItemAutocomplete() end)
     self.itemInput:SetScript("OnEditFocusLost", function()
+        local dropdown = SF.itemAutocomplete
+        if dropdown and dropdown:IsShown() and dropdown.IsMouseOver and dropdown:IsMouseOver() then
+            return
+        end
+
         local generation = (SF.itemAutocompleteGeneration or 0) + 1
         SF.itemAutocompleteGeneration = generation
         local function HideIfStillUnfocused()

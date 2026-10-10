@@ -7,6 +7,8 @@
 - Added exact, prefix-first, and substring result ranking with punctuation-
   tolerant matching.
 - Added mouse selection plus arrow-key, Tab, Enter, and Escape controls.
+- Fixed mouse selection on clients where losing edit-box focus could close the
+  autocomplete dropdown before its clicked row received the selection.
 - Declared ItemDB as a hard addon dependency; it remains a separate install and
   is not bundled in the Shopping Forever release archive.
 
