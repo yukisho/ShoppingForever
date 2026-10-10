@@ -1,0 +1,5 @@
+Releases/
+.release-staging/
+.history/
+*.zip
+*.bak
