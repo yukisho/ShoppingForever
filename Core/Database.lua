@@ -34,6 +34,8 @@ local function NewDatabase()
             autoOpenAuctionHouse = true,
             autoOpenMerchant = true,
             autoOpenProfession = true,
+            showMinimapButton = true,
+            minimapAngle = 225,
             filterMode = "all",
             sortMode = "added",
             window = {
@@ -189,6 +191,11 @@ local function NormalizeDatabase(database)
     for _, key in pairs(AUTO_OPEN_SETTING_KEYS) do
         if type(database.settings[key]) ~= "boolean" then database.settings[key] = true end
     end
+    if type(database.settings.showMinimapButton) ~= "boolean" then
+        database.settings.showMinimapButton = true
+    end
+    database.settings.minimapAngle = SF.util.ClampWholeNumber(
+        database.settings.minimapAngle, 0, 359, 225)
     local windowDefaults = defaults.window
     for key, value in pairs(windowDefaults) do
         if database.settings.window[key] == nil then database.settings.window[key] = value end
@@ -222,6 +229,37 @@ function SF:SetAutoOpenEnabled(source, enabled)
     self.db.settings[key] = enabled == true
     self:NotifyChanged("autoOpenChanged", { source = source, enabled = self.db.settings[key] })
     return true, self.db.settings[key]
+end
+
+function SF:IsMinimapButtonShown()
+    return self.db and self.db.settings.showMinimapButton ~= false
+end
+
+function SF:SetMinimapButtonShown(shown)
+    if not self.db then return false, "Shopping Forever is not initialized." end
+    self.db.settings.showMinimapButton = shown == true
+    if self.RefreshMinimapButton then self:RefreshMinimapButton() end
+    self:NotifyChanged("minimapVisibilityChanged", { shown = self.db.settings.showMinimapButton })
+    return true, self.db.settings.showMinimapButton
+end
+
+function SF:GetMinimapAngle()
+    if not self.db then return 225 end
+    return SF.util.ClampWholeNumber(self.db.settings.minimapAngle, 0, 359, 225)
+end
+
+function SF:SetMinimapAngle(angle, silent)
+    if not self.db then return false, "Shopping Forever is not initialized." end
+    angle = tonumber(angle)
+    if not angle or angle ~= angle or angle == math.huge or angle == -math.huge then
+        return false, "Invalid minimap button position."
+    end
+    self.db.settings.minimapAngle = math.floor(angle % 360)
+    if self.PositionMinimapButton then self:PositionMinimapButton() end
+    if not silent then
+        self:NotifyChanged("minimapPositionChanged", { angle = self.db.settings.minimapAngle })
+    end
+    return true, self.db.settings.minimapAngle
 end
 
 function SF:GetLists()

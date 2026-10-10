@@ -425,12 +425,26 @@ function SF:CreateItemRow(parent, index)
     local row = CreateFrame("Frame", nil, parent)
     row:EnableMouse(true)
     row:SetHeight(ROW_HEIGHT)
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -4 - ((index - 1) * ROW_HEIGHT))
-    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -10, -4 - ((index - 1) * ROW_HEIGHT))
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -23 - ((index - 1) * ROW_HEIGHT))
+    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -10, -23 - ((index - 1) * ROW_HEIGHT))
+
+    if index % 2 == 0 then
+        row.background = row:CreateTexture(nil, "BACKGROUND")
+        row.background:SetAllPoints()
+        row.background:SetColorTexture(1, 1, 1, 0.035)
+    end
 
     row.complete = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
     row.complete:SetSize(22, 22)
     row.complete:SetPoint("LEFT", 0, 0)
+    row.complete:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Manual completion")
+        GameTooltip:AddLine("Mark an Own Total goal complete when inventory counts cannot represent it.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    row.complete:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(24, 24)
@@ -454,8 +468,22 @@ function SF:CreateItemRow(parent, index)
 
     row.minus = MakeButton(row, "-", 24, 22)
     row.minus:SetPoint("LEFT", row.progress, "RIGHT", 2, 0)
+    row.minus:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Decrease acquired")
+        GameTooltip:AddLine("Subtract one from this Buy More goal's tracked progress.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    row.minus:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.plus = MakeButton(row, "+", 24, 22)
     row.plus:SetPoint("LEFT", row.minus, "RIGHT", 2, 0)
+    row.plus:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Increase acquired")
+        GameTooltip:AddLine("Add one to this Buy More goal's tracked progress.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    row.plus:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.materials = MakeButton(row, "Plan", 48, 22)
     row.materials:SetPoint("LEFT", row.plus, "RIGHT", 2, 0)
     row.materials:SetScript("OnEnter", function(self)
@@ -475,10 +503,41 @@ function SF:CreateItemRow(parent, index)
     row.materials:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.action = MakeButton(row, "AH", 46, 22)
     row.action:SetPoint("LEFT", row.materials, "RIGHT", 2, 0)
+    row.action:SetScript("OnEnter", function(button)
+        if not row.item then return end
+        local source = SF:GetSourcePresentation(row.item)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        if source.action == "craft" then
+            GameTooltip:SetText("Open recipe")
+            GameTooltip:AddLine("Open this known recipe in the profession window.", 1, 1, 1, true)
+        elseif source.action == "vendor" then
+            GameTooltip:SetText("Current vendor")
+            GameTooltip:AddLine("Show where this item appears on the open vendor.", 1, 1, 1, true)
+        else
+            GameTooltip:SetText("Search Auction House")
+            GameTooltip:AddLine("Fill the Auction House search with this item.", 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    row.action:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.edit = MakeButton(row, "Edit", 44, 22)
     row.edit:SetPoint("LEFT", row.action, "RIGHT", 2, 0)
+    row.edit:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Edit item goal")
+        GameTooltip:AddLine("Change quantity, target mode, or preferred source.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    row.edit:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.delete = MakeButton(row, "X", 28, 22)
     row.delete:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.delete:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Remove item goal")
+        GameTooltip:AddLine("Remove this item from the selected shopping list.", 1, 0.75, 0.75, true)
+        GameTooltip:Show()
+    end)
+    row.delete:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     row:SetScript("OnEnter", function(self)
         local item = self.item
@@ -583,6 +642,18 @@ function SF:RefreshWindow()
     end
     local shownText = filterMode ~= "all" and string.format(" · %d shown", #displayItems) or ""
     self.summaryText:SetText(string.format("%d of %d complete%s", completedCount, #list.items, shownText))
+    local firstVisible = #displayItems == 0 and 0 or self.itemOffset + 1
+    local lastVisible = math.min(#displayItems, self.itemOffset + ROW_COUNT)
+    self.pageText:SetText(firstVisible .. "-" .. lastVisible .. " of " .. #displayItems)
+    self.emptyListText:SetShown(#displayItems == 0)
+    if #displayItems == 0 then
+        if #list.items == 0 then
+            self.emptyListText:SetText("No items yet. Type an item name above to begin this list.")
+        else
+            self.emptyListText:SetText("No items match the current " .. string.lower(FILTER_LABELS[filterMode])
+                .. " filter.")
+        end
+    end
 
     for rowIndex, row in ipairs(self.itemRows) do
         local item = displayItems[self.itemOffset + rowIndex]
@@ -595,6 +666,9 @@ function SF:RefreshWindow()
             local source = self:GetSourcePresentation(item)
             row.source:SetText(source.label)
             row.progress:SetText(current .. " / " .. item.desired)
+            row.name:SetAlpha(completed and 0.6 or 1)
+            row.source:SetAlpha(completed and 0.6 or 1)
+            row.progress:SetAlpha(completed and 0.6 or 1)
             row.complete:SetChecked(completed)
             row.complete:SetEnabled(not completed or item.manualCompleted)
             row.complete:SetScript("OnClick", function(button)
@@ -1380,6 +1454,20 @@ function SF:RefreshManageWindow()
     for source, checkbox in pairs(self.manageWindow.autoOpenChecks) do
         checkbox:SetChecked(self:IsAutoOpenEnabled(source))
     end
+    self.manageWindow.minimapCheck:SetChecked(self:IsMinimapButtonShown())
+end
+
+function SF:SetMinimapVisibilityFromUI(shown)
+    local ok, result = self:SetMinimapButtonShown(shown)
+    if not ok then self:SetManageStatus(result, true) return end
+    self:SetManageStatus("Minimap button " .. (result and "shown." or "hidden. Use /sf minimap show to restore it."), false)
+end
+
+function SF:ResetMinimapPositionFromUI()
+    self:SetMinimapAngle(225)
+    self:SetMinimapButtonShown(true)
+    self:SetManageStatus("Minimap button position reset.", false)
+    self:RefreshManageWindow()
 end
 
 function SF:SetAutoOpenFromUI(source, enabled, label)
@@ -1602,6 +1690,18 @@ function SF:CreateManageWindow()
         window.autoOpenChecks[source] = checkbox
     end
 
+    window.minimapCheck = MakeCheckButton(window, "Show minimap button", 175)
+    window.minimapCheck:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -279)
+    window.minimapCheck.label:SetWidth(165)
+    window.minimapCheck.label:SetJustifyH("LEFT")
+    window.minimapCheck:SetScript("OnClick", function(button)
+        SF:SetMinimapVisibilityFromUI(button:GetChecked() == true)
+    end)
+
+    local resetMinimap = MakeButton(window, "Reset Button Position", 150, 24)
+    resetMinimap:SetPoint("TOPLEFT", window, "TOPLEFT", 250, -279)
+    resetMinimap:SetScript("OnClick", function() SF:ResetMinimapPositionFromUI() end)
+
     local close = MakeButton(window, CLOSE, 88)
     close:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 16)
     close:SetScript("OnClick", function() window:Hide() end)
@@ -1808,15 +1908,45 @@ function SF:CreateMainWindow()
     listPanel:SetPoint("TOPLEFT", window, "TOPLEFT", 12, -126)
     listPanel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -12, 48)
     self.listPanel = listPanel
+
+    local function MakeColumnHeader(text, x, width, justify)
+        local header = listPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        header:SetPoint("TOPLEFT", listPanel, "TOPLEFT", x, -7)
+        header:SetWidth(width)
+        header:SetJustifyH(justify or "LEFT")
+        header:SetText(text)
+        return header
+    end
+    MakeColumnHeader("Done", 10, 42, "CENTER")
+    MakeColumnHeader("Item", 62, 165)
+    MakeColumnHeader("Source", 231, 80)
+    MakeColumnHeader("Have / Need", 315, 76, "CENTER")
+    MakeColumnHeader("Actions", 397, 145, "CENTER")
+
+    self.pageText = MakeColumnHeader("0-0 of 0", 548, 92, "RIGHT")
+
+    local headerLine = listPanel:CreateTexture(nil, "ARTWORK")
+    headerLine:SetPoint("TOPLEFT", listPanel, "TOPLEFT", 8, -21)
+    headerLine:SetPoint("TOPRIGHT", listPanel, "TOPRIGHT", -8, -21)
+    headerLine:SetHeight(1)
+    headerLine:SetColorTexture(0.55, 0.55, 0.55, 0.45)
+
+    self.emptyListText = listPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    self.emptyListText:SetPoint("CENTER", listPanel, "CENTER", 0, -4)
+    self.emptyListText:SetWidth(500)
+    self.emptyListText:SetJustifyH("CENTER")
+    self.emptyListText:SetText("No items yet. Type an item name above to begin this list.")
+    self.emptyListText:Hide()
+
     self.itemRows = {}
     for index = 1, ROW_COUNT do
         self.itemRows[index] = self:CreateItemRow(listPanel, index)
     end
 
-    self.pageUpButton = MakeButton(window, "Up", 46, 22)
+    self.pageUpButton = MakeButton(window, "Prev", 50, 22)
     self.pageUpButton:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 14, 17)
     self.pageUpButton:SetScript("OnClick", function() SF:ScrollItems(-ROW_COUNT) end)
-    self.pageDownButton = MakeButton(window, "Down", 52, 22)
+    self.pageDownButton = MakeButton(window, "Next", 50, 22)
     self.pageDownButton:SetPoint("LEFT", self.pageUpButton, "RIGHT", 4, 0)
     self.pageDownButton:SetScript("OnClick", function() SF:ScrollItems(ROW_COUNT) end)
 

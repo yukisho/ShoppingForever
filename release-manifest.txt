@@ -11,8 +11,10 @@ Integrations/Crafting.lua
 Features/ListTools.lua
 Features/CraftingPlan.lua
 Features/Portability.lua
+UI/MinimapButton.lua
 UI/MainWindow.lua
 Core/Commands.lua
 Core/Bootstrap.lua
+Media/ShoppingForeverIcon.tga
 README.md
 CHANGELOG.md

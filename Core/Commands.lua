@@ -12,6 +12,7 @@ local function ShowHelp()
     SF:Print("/sf bulk - paste several item goals at once")
     SF:Print("/sf duplicate - copy the selected list with fresh progress")
     SF:Print("/sf share - open list sharing and full backup tools")
+    SF:Print("/sf minimap [show|hide|reset] - manage the minimap button")
 end
 
 local function HandleCommand(message)
@@ -54,6 +55,22 @@ local function HandleCommand(message)
     elseif command == "manage" then
         SF:ShowWindow()
         SF:ShowManageWindow()
+    elseif command == "minimap" then
+        local action = string.lower(SF.util.Trim(argument))
+        if action == "reset" then
+            SF:SetMinimapAngle(225)
+            SF:SetMinimapButtonShown(true)
+            SF:Print("Minimap button position reset.")
+        elseif action == "show" then
+            SF:SetMinimapButtonShown(true)
+            SF:Print("Minimap button shown.")
+        elseif action == "hide" then
+            SF:SetMinimapButtonShown(false)
+            SF:Print("Minimap button hidden. Use /sf minimap show to restore it.")
+        else
+            local _, shown = SF:SetMinimapButtonShown(not SF:IsMinimapButtonShown())
+            SF:Print("Minimap button " .. (shown and "shown." or "hidden. Use /sf minimap show to restore it."))
+        end
     elseif command == "bulk" then
         SF:ShowWindow()
         SF:ShowBulkAddWindow()

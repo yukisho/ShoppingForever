@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.0.2
+
+- Fixed overlapping minimap visibility and position-reset text in the Manage
+  and Settings window.
+
+## 1.0.1
+
+- Fixed the minimap button radius so it sits on the edge of resized and
+  custom-skinned minimaps instead of appearing inside them.
+- Repositions the button when the minimap changes size and again at login.
+
+## 1.0.0
+
+- Added an original Shopping Forever addon icon.
+- Added a native draggable minimap button with saved position and visibility.
+- Added left-click list toggling, right-click settings access, and a usage
+  tooltip to the minimap button.
+- Added minimap visibility and position reset controls to Manage and Settings.
+- Added `/sf minimap`, including explicit show, hide, and reset actions so a
+  hidden button can always be restored.
+
+## 0.9.0 - Development
+
+- Added main-list column headings and alternating row shading.
+- Added visible item ranges and clearer Previous/Next paging controls.
+- Added distinct guidance for empty lists and filters with no matches.
+- Dimmed completed rows while preserving their item links and controls.
+- Added contextual tooltips for completion, progress, source, edit, and remove
+  controls.
+
 ## 0.8.0 - Development
 
 - Made the current list name a direct, paged list selector while preserving the

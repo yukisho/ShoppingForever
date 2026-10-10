@@ -23,6 +23,7 @@ function SF:Initialize()
     local itemDatabaseReady, itemDatabaseError = self:InitializeItemDatabase()
     if not itemDatabaseReady then self:Print(itemDatabaseError) end
     self:CreateMainWindow()
+    self:CreateMinimapButton()
     self:RegisterCommands()
     self:InitializeAuctionHouseIntegration()
     self:InitializeMerchantIntegration()
@@ -43,6 +44,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if success then SF:RefreshItemInformation(itemID) end
     elseif event == "PLAYER_LOGIN" then
         SF:UpdateCurrentCharacter()
+        SF:RefreshMinimapButton()
     elseif event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED"
         or event == "BAG_UPDATE_DELAYED" or event == "PLAYERBANKSLOTS_CHANGED"
         or event == "ITEM_COUNT_CHANGED"
