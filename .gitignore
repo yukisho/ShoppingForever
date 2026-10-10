@@ -3,3 +3,5 @@ Releases/
 .history/
 *.zip
 *.bak
+Tests/
+*.ps1
