@@ -2,7 +2,7 @@
 ## Title: Shopping Forever
 ## Notes: Account-wide shopping lists for the Auction House, vendors, and professions.
 ## Author: Gravvy
-## Version: 1.0.2
+## Version: 1.1.1
 ## IconTexture: Interface\AddOns\ShoppingForever\Media\ShoppingForeverIcon
 ## Dependencies: ItemDB
 ## SavedVariables: ShoppingForeverDB

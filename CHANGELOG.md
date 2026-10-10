@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1
+
+- Fixed the profession button remaining disabled when WoW Forever does not
+  populate the account recipe cache through the all-professions API.
+- Reads selected-recipe reagents directly from modern schematic, indexed
+  C_TradeSkillUI, or legacy TradeSkill APIs before falling back to cached data.
+- Moved the button to the Track Recipe row instead of covering that control.
+
+## 1.1.0
+
+- Added an Add Reagents button to the profession crafting window.
+- Uses the selected recipe and craft count, subtracts owned and already-listed
+  reagents, and adds the remainder to the active list as Buy More goals.
+- Supports both modern ProfessionsFrame and legacy TradeSkillFrame layouts.
+- Disables the action for recipes whose selectable reagents cannot be resolved
+  safely.
+
 ## 1.0.2
 
 - Fixed overlapping minimap visibility and position-reset text in the Manage
