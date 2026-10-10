@@ -19,6 +19,7 @@ local function NewDatabase()
         selectedListByCharacter = {},
         nextHistoryID = 1,
         history = {},
+        safetyBackups = {},
         lists = { NewDefaultList() },
         characters = {},
         vendorCatalog = {},
@@ -70,6 +71,7 @@ local function NormalizeDatabase(database)
     database.selectedListByCharacter = type(database.selectedListByCharacter) == "table"
         and database.selectedListByCharacter or {}
     database.history = type(database.history) == "table" and database.history or {}
+    database.safetyBackups = type(database.safetyBackups) == "table" and database.safetyBackups or {}
     database.vendorCatalog = type(database.vendorCatalog) == "table" and database.vendorCatalog or {}
     database.settings = type(database.settings) == "table" and database.settings or {}
     database.settings.window = type(database.settings.window) == "table" and database.settings.window or {}
@@ -148,6 +150,12 @@ local function NormalizeDatabase(database)
     for key, value in pairs(windowDefaults) do
         if database.settings.window[key] == nil then database.settings.window[key] = value end
     end
+end
+
+function SF:NormalizeDatabase(database)
+    if type(database) ~= "table" then return false end
+    NormalizeDatabase(database)
+    return true
 end
 
 function SF:EnsureDatabase()

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 - Development
+
+- Added checksummed SFL1 codes for exporting and importing individual lists.
+- Added checksummed SFB1 full-data backup and restore codes.
+- Added strict import validation, unique imported-list names, and reset progress
+  for imported goals.
+- Added automatic pre-restore safety copies with the three latest copies kept.
+- Added the Share and Backup window plus `/sf share` and `/sf backup` commands.
+- Added confirmed per-list acquisition-history clearing.
+
 ## 0.3.0 - Development
 
 - Added bounded account-wide acquisition history with list-specific views.

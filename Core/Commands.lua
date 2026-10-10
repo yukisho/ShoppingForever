@@ -7,6 +7,7 @@ local function ShowHelp()
     SF:Print("/sf own | buy - set the add mode")
     SF:Print("/sf history - show acquisition history for the selected list")
     SF:Print("/sf undo - undo the latest acquisition for the selected list")
+    SF:Print("/sf share - open list sharing and full backup tools")
 end
 
 local function HandleCommand(message)
@@ -40,6 +41,9 @@ local function HandleCommand(message)
         else
             SF:Print(result)
         end
+    elseif command == "share" or command == "backup" then
+        SF:ShowWindow()
+        SF:ShowPortabilityWindow()
     elseif command == "add" then
         local itemInfo, quantity = argument:match("^(.-)%s+(%d+)%s*$")
         if not itemInfo or itemInfo == "" then itemInfo, quantity = argument, 1 end

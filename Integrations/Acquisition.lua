@@ -83,6 +83,19 @@ function SF:UndoLastAcquisition(listID)
     return false, "There is no reversible acquisition for this list."
 end
 
+function SF:ClearAcquisitionHistory(listID)
+    listID = tonumber(listID)
+    if not listID then return false, "List not found." end
+    local kept, removed = {}, 0
+    for _, entry in ipairs(self.db.history) do
+        if entry.listID == listID then removed = removed + 1
+        else kept[#kept + 1] = entry end
+    end
+    self.db.history = kept
+    if removed > 0 then self:NotifyChanged("historyCleared", { listID = listID, count = removed }) end
+    return true, removed
+end
+
 function SF:RecordAcquisition(itemID, quantity, source)
     itemID = tonumber(itemID)
     quantity = SF.util.ClampWholeNumber(quantity, 1, SF.Model.MAX_QUANTITY, 1)

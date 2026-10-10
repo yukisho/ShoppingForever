@@ -131,6 +131,45 @@ function SF:InitializeDialogs()
             if not ok then SF:Print(result) end
         end,
     }
+
+    StaticPopupDialogs.SHOPPING_FOREVER_RESTORE_BACKUP = {
+        text = "Restore this full Shopping Forever backup? Current data will be replaced after a safety copy is created.",
+        button1 = "Restore",
+        button2 = CANCEL,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        showAlert = true,
+        preferredIndex = 3,
+        OnAccept = function(_, code) SF:RestoreBackupFromUI(code) end,
+    }
+
+    StaticPopupDialogs.SHOPPING_FOREVER_RESTORE_SAFETY = {
+        text = "Restore the most recent automatic safety copy?",
+        button1 = "Restore",
+        button2 = CANCEL,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        showAlert = true,
+        preferredIndex = 3,
+        OnAccept = function() SF:RestoreSafetyFromUI() end,
+    }
+
+    StaticPopupDialogs.SHOPPING_FOREVER_CLEAR_HISTORY = {
+        text = "Clear acquisition history for |cffffffff%s|r? Progress will not be changed.",
+        button1 = DELETE,
+        button2 = CANCEL,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        showAlert = true,
+        preferredIndex = 3,
+        OnAccept = function(_, listID)
+            local ok, removed = SF:ClearAcquisitionHistory(listID)
+            if ok then SF.statusText:SetText("Cleared " .. removed .. " history entries.") end
+        end,
+    }
 end
 
 function SF:SaveWindowPosition()
@@ -634,12 +673,147 @@ function SF:CreateHistoryWindow()
     historyWindow.emptyText:SetPoint("CENTER", historyWindow, "CENTER", 0, 0)
     historyWindow.emptyText:SetText("No acquisitions recorded for this list.")
 
+    local clear = MakeButton(historyWindow, "Clear", 72)
+    clear:SetPoint("BOTTOMLEFT", historyWindow, "BOTTOMLEFT", 16, 16)
+    clear:SetScript("OnClick", function()
+        local list = SF:GetCurrentList()
+        if list then StaticPopup_Show("SHOPPING_FOREVER_CLEAR_HISTORY", list.name, nil, list.id) end
+    end)
     local undo = MakeButton(historyWindow, "Undo Latest", 100)
     undo:SetPoint("BOTTOMRIGHT", historyWindow, "BOTTOMRIGHT", -104, 16)
     undo:SetScript("OnClick", function() SF:UndoLatestFromUI() end)
     local close = MakeButton(historyWindow, CLOSE, 88)
     close:SetPoint("LEFT", undo, "RIGHT", 8, 0)
     close:SetScript("OnClick", function() historyWindow:Hide() end)
+end
+
+function SF:SetPortabilityStatus(message, isError)
+    if not self.portabilityWindow then return end
+    self.portabilityWindow.statusText:SetText((isError and "|cffff6666" or "|cff66ff99")
+        .. tostring(message or "") .. "|r")
+end
+
+function SF:SetPortabilityCode(code)
+    if not self.portabilityWindow then return end
+    local editBox = self.portabilityWindow.codeInput
+    editBox:SetText(code or "")
+    editBox:SetCursorPosition(0)
+end
+
+function SF:GenerateListShareCode()
+    local code, errorMessage = self:EncodeCurrentList()
+    if not code then self:SetPortabilityStatus(errorMessage, true) return false end
+    self:SetPortabilityCode(code)
+    self:SetPortabilityStatus("List code ready · " .. #code .. " characters", false)
+    return true
+end
+
+function SF:ImportListFromUI()
+    local code = self.portabilityWindow and self.portabilityWindow.codeInput:GetText() or ""
+    local ok, result = self:ImportListCode(code)
+    if not ok then self:SetPortabilityStatus(result, true) return end
+    self:SetPortabilityStatus("Imported " .. result.name .. " with " .. #result.items .. " items.", false)
+end
+
+function SF:GenerateBackupCode()
+    local code, errorMessage = self:EncodeBackup()
+    if not code then self:SetPortabilityStatus(errorMessage, true) return false end
+    self:SetPortabilityCode(code)
+    self:SetPortabilityStatus("Full backup ready · " .. #code .. " characters", false)
+    return true
+end
+
+function SF:ConfirmBackupRestoreFromUI()
+    local code = self.portabilityWindow and self.portabilityWindow.codeInput:GetText() or ""
+    local decoded, errorMessage = self:DecodeBackupCode(code)
+    if not decoded or not self:ValidateBackupSnapshot(decoded) then
+        self:SetPortabilityStatus(errorMessage or "The backup contains invalid data.", true)
+        return
+    end
+    StaticPopup_Show("SHOPPING_FOREVER_RESTORE_BACKUP", nil, nil, code)
+end
+
+function SF:RestoreBackupFromUI(code)
+    local ok, result = self:RestoreBackupCode(code)
+    if not ok then self:SetPortabilityStatus(result, true) return end
+    self:SetPortabilityStatus("Backup restored. A safety copy of the previous data was saved.", false)
+    self:SetPortabilityCode("")
+end
+
+function SF:ConfirmSafetyRestoreFromUI()
+    if not self.db.safetyBackups or #self.db.safetyBackups == 0 then
+        self:SetPortabilityStatus("No automatic safety copy is available.", true)
+        return
+    end
+    StaticPopup_Show("SHOPPING_FOREVER_RESTORE_SAFETY")
+end
+
+function SF:RestoreSafetyFromUI()
+    local ok, result = self:RestoreLatestSafetyBackup()
+    if not ok then self:SetPortabilityStatus(result, true) return end
+    self:SetPortabilityStatus("The latest safety copy was restored.", false)
+    self:SetPortabilityCode("")
+end
+
+function SF:ShowPortabilityWindow()
+    if not self.portabilityWindow then return end
+    self.portabilityWindow:Show()
+    self:GenerateListShareCode()
+end
+
+function SF:CreatePortabilityWindow()
+    local window = CreateFrame("Frame", "ShoppingForeverPortabilityFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    window:SetSize(650, 270)
+    window:SetPoint("CENTER", self.window, "CENTER", 0, 0)
+    window:SetFrameStrata("FULLSCREEN_DIALOG")
+    window:SetClampedToScreen(true)
+    window:Hide()
+    window.TitleText:SetText("Share and Backup")
+    table.insert(UISpecialFrames, window:GetName())
+    self.portabilityWindow = window
+
+    local help = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -38)
+    help:SetPoint("TOPRIGHT", window, "TOPRIGHT", -18, -38)
+    help:SetJustifyH("LEFT")
+    help:SetText("SFL1 codes share only the selected list. SFB1 codes back up all Shopping Forever data.")
+
+    window.codeInput = MakeEditBox(window, 600, 32)
+    window.codeInput:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -72)
+    window.codeInput:SetMaxLetters(self.Portability.MAX_BACKUP_CODE_LENGTH)
+    window.codeInput:SetScript("OnEnterPressed", function(editBox) editBox:ClearFocus() end)
+
+    local exportList = MakeButton(window, "Export List", 92)
+    exportList:SetPoint("TOPLEFT", window.codeInput, "BOTTOMLEFT", 0, -12)
+    exportList:SetScript("OnClick", function() SF:GenerateListShareCode() end)
+    local importList = MakeButton(window, "Import List", 92)
+    importList:SetPoint("LEFT", exportList, "RIGHT", 6, 0)
+    importList:SetScript("OnClick", function() SF:ImportListFromUI() end)
+    local backup = MakeButton(window, "Full Backup", 96)
+    backup:SetPoint("LEFT", importList, "RIGHT", 14, 0)
+    backup:SetScript("OnClick", function() SF:GenerateBackupCode() end)
+    local restore = MakeButton(window, "Restore", 82)
+    restore:SetPoint("LEFT", backup, "RIGHT", 6, 0)
+    restore:SetScript("OnClick", function() SF:ConfirmBackupRestoreFromUI() end)
+    local safety = MakeButton(window, "Safety Copy", 96)
+    safety:SetPoint("LEFT", restore, "RIGHT", 14, 0)
+    safety:SetScript("OnClick", function() SF:ConfirmSafetyRestoreFromUI() end)
+
+    window.statusText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    window.statusText:SetPoint("TOPLEFT", exportList, "BOTTOMLEFT", 0, -16)
+    window.statusText:SetPoint("TOPRIGHT", window, "TOPRIGHT", -20, -16)
+    window.statusText:SetJustifyH("LEFT")
+
+    local selectAll = MakeButton(window, "Select All", 88)
+    selectAll:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -106, 16)
+    selectAll:SetScript("OnClick", function()
+        window.codeInput:SetFocus()
+        window.codeInput:HighlightText()
+    end)
+    local close = MakeButton(window, CLOSE, 88)
+    close:SetPoint("LEFT", selectAll, "RIGHT", 8, 0)
+    close:SetScript("OnClick", function() window:Hide() end)
 end
 
 function SF:CreateMainWindow()
@@ -815,8 +989,14 @@ function SF:CreateMainWindow()
     undoButton:SetPoint("LEFT", historyButton, "RIGHT", 4, 0)
     undoButton:SetScript("OnClick", function() SF:UndoLatestFromUI() end)
 
+    local shareButton = MakeButton(window, "Share", 62, 22)
+    shareButton:SetPoint("LEFT", undoButton, "RIGHT", 4, 0)
+    shareButton:SetScript("OnClick", function() SF:ShowPortabilityWindow() end)
+
     self.summaryText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    self.summaryText:SetPoint("BOTTOM", window, "BOTTOM", 0, 23)
+    self.summaryText:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 330, 23)
+    self.summaryText:SetWidth(130)
+    self.summaryText:SetJustifyH("CENTER")
 
     self.statusText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     self.statusText:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -16, 23)
@@ -833,6 +1013,7 @@ function SF:CreateMainWindow()
 
     self:CreateItemEditor()
     self:CreateHistoryWindow()
+    self:CreatePortabilityWindow()
 
     self:RegisterCallback(function()
         if SF.window then SF:RefreshWindow() end
