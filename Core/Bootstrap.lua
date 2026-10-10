@@ -20,6 +20,8 @@ end
 function SF:Initialize()
     self:EnsureDatabase()
     self:UpdateCurrentCharacter()
+    local itemDatabaseReady, itemDatabaseError = self:InitializeItemDatabase()
+    if not itemDatabaseReady then self:Print(itemDatabaseError) end
     self:CreateMainWindow()
     self:RegisterCommands()
     self:InitializeAuctionHouseIntegration()

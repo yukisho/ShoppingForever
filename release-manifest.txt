@@ -4,6 +4,7 @@ Core/Model.lua
 Core/Database.lua
 Core/Inventory.lua
 Integrations/Acquisition.lua
+Integrations/ItemDatabase.lua
 Integrations/AuctionHouse.lua
 Integrations/Merchant.lua
 Integrations/Crafting.lua

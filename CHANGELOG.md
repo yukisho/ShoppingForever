@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 - Development
+
+- Added item-name autocomplete to the main item field using the required
+  LibItemDB-1.0 library supplied by the ItemDB addon.
+- Added exact, prefix-first, and substring result ranking with punctuation-
+  tolerant matching.
+- Added mouse selection plus arrow-key, Tab, Enter, and Escape controls.
+- Declared ItemDB as a hard addon dependency; it remains a separate install and
+  is not bundled in the Shopping Forever release archive.
+
 ## 0.6.0 - Development
 
 - Added multi-level crafting plans for fixed-reagent recipes.

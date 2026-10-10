@@ -68,14 +68,19 @@ function Model:GetItemID(itemInfo)
 
     if C_Item and C_Item.GetItemInfoInstant then
         local ok, itemID = pcall(C_Item.GetItemInfoInstant, itemInfo)
-        if ok then return itemID end
+        if ok and itemID then return itemID end
+    end
+
+    if SF.itemDatabase and SF.itemDatabase.GetID then
+        local ok, itemID = pcall(SF.itemDatabase.GetID, SF.itemDatabase, SF.util.Trim(itemInfo))
+        if ok and itemID then return itemID end
     end
 end
 
 function Model:ResolveItem(itemInfo)
     local itemID = self:GetItemID(itemInfo)
     if not itemID or itemID < 1 then
-        return nil, "Enter an item link or item ID."
+        return nil, "Enter an item name, item link, or item ID."
     end
 
     local name, link, icon
@@ -97,8 +102,20 @@ function Model:ResolveItem(itemInfo)
         end
     end
 
+
     if type(itemInfo) == "string" and itemInfo:find("|Hitem:", 1, true) then
         link = link or itemInfo
+    end
+
+    if SF.itemDatabase then
+        if not name and SF.itemDatabase.GetName then
+            local ok, resolvedName = pcall(SF.itemDatabase.GetName, SF.itemDatabase, itemID)
+            if ok then name = resolvedName end
+        end
+        if not link and SF.itemDatabase.GetLink then
+            local ok, resolvedLink = pcall(SF.itemDatabase.GetLink, SF.itemDatabase, itemID)
+            if ok then link = resolvedLink end
+        end
     end
 
     if not name or name == "" then

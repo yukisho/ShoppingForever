@@ -2,6 +2,8 @@ local _, SF = ...
 
 local ROW_COUNT = 10
 local ROW_HEIGHT = 32
+local AUTOCOMPLETE_ROW_COUNT = 8
+local AUTOCOMPLETE_ROW_HEIGHT = 24
 local SOURCE_ORDER = { "any", "auction", "vendor", "craft" }
 local SOURCE_LABELS = {
     any = "Automatic",
@@ -249,13 +251,157 @@ function SF:AddItemFromControls()
     end
     self.itemInput:SetText("")
     self.quantityInput:SetText("1")
+    self:HideItemAutocomplete()
     self.statusText:SetText(merged and "Updated existing entry." or "Added " .. result.name .. ".")
 end
 
 function SF:SetItemInput(itemInfo)
     if not self.itemInput then return end
-    self.itemInput:SetText(itemInfo or "")
-    self.itemInput:SetCursorPosition(0)
+    self.itemAutocompleteSuppress = true
+    local value = tostring(itemInfo or "")
+    self.itemInput:SetText(value)
+    self.itemInput:SetCursorPosition(#value)
+    self.itemAutocompleteSuppress = false
+    self:HideItemAutocomplete()
+end
+
+function SF:HideItemAutocomplete()
+    if self.itemAutocomplete then self.itemAutocomplete:Hide() end
+    self.itemAutocompleteResults = nil
+    self.itemAutocompleteSelection = nil
+end
+
+function SF:SetItemAutocompleteSelection(index)
+    local results = self.itemAutocompleteResults
+    if not results or #results == 0 then return end
+
+    if index < 1 then index = #results end
+    if index > #results then index = 1 end
+    self.itemAutocompleteSelection = index
+
+    for rowIndex, row in ipairs(self.itemAutocomplete.rows) do
+        if rowIndex == index and row:IsShown() then
+            row.selection:Show()
+        else
+            row.selection:Hide()
+        end
+    end
+end
+
+function SF:MoveItemAutocompleteSelection(direction)
+    if not self.itemAutocomplete or not self.itemAutocomplete:IsShown() then return end
+    self:SetItemAutocompleteSelection((self.itemAutocompleteSelection or 1) + direction)
+end
+
+function SF:AcceptItemAutocomplete(index)
+    local result = self.itemAutocompleteResults and self.itemAutocompleteResults[index or self.itemAutocompleteSelection]
+    if not result then return false end
+
+    self:SetItemInput(result.link or result.itemID)
+    self.itemInput:SetFocus()
+    return true
+end
+
+function SF:RefreshItemAutocomplete()
+    if not self.itemInput or not self.itemInput:HasFocus() then
+        self:HideItemAutocomplete()
+        return
+    end
+
+    local results = self:SearchItemNames(self.itemInput:GetText(), AUTOCOMPLETE_ROW_COUNT)
+    if #results == 0 then
+        self:HideItemAutocomplete()
+        return
+    end
+
+    self.itemAutocompleteResults = results
+    self.itemAutocompleteSelection = 1
+    self.itemAutocomplete:SetHeight(8 + (#results * AUTOCOMPLETE_ROW_HEIGHT))
+
+    for index, row in ipairs(self.itemAutocomplete.rows) do
+        local result = results[index]
+        if result then
+            row.result = result
+            row.name:SetText(result.link or result.name)
+            row.itemID:SetText("#" .. result.itemID)
+            local icon = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(result.itemID)
+            row.icon:SetTexture(icon or 134400)
+            row:Show()
+        else
+            row.result = nil
+            row:Hide()
+        end
+    end
+
+    self.itemAutocomplete:Show()
+    self:SetItemAutocompleteSelection(1)
+end
+
+function SF:QueueItemAutocomplete()
+    if self.itemAutocompleteSuppress or not self.itemInput then return end
+
+    local text = self.util.Trim(self.itemInput:GetText())
+    if #text < 2 or text:find("|Hitem:", 1, true) or text:match("^%d+$") then
+        self:HideItemAutocomplete()
+        return
+    end
+
+    self.itemAutocompleteGeneration = (self.itemAutocompleteGeneration or 0) + 1
+    local generation = self.itemAutocompleteGeneration
+    local function RefreshIfCurrent()
+        if generation == SF.itemAutocompleteGeneration then SF:RefreshItemAutocomplete() end
+    end
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.12, RefreshIfCurrent)
+    else
+        RefreshIfCurrent()
+    end
+end
+
+function SF:CreateItemAutocomplete()
+    local dropdown = CreateFrame("Frame", nil, self.itemInput, "InsetFrameTemplate")
+    dropdown:SetPoint("TOPLEFT", self.itemInput, "BOTTOMLEFT", 0, -2)
+    dropdown:SetSize(360, 8 + (AUTOCOMPLETE_ROW_COUNT * AUTOCOMPLETE_ROW_HEIGHT))
+    dropdown:SetFrameStrata("TOOLTIP")
+    dropdown:SetClampedToScreen(true)
+    dropdown:Hide()
+    dropdown.rows = {}
+
+    for index = 1, AUTOCOMPLETE_ROW_COUNT do
+        local rowIndex = index
+        local row = CreateFrame("Button", nil, dropdown)
+        row:SetHeight(AUTOCOMPLETE_ROW_HEIGHT)
+        row:SetPoint("TOPLEFT", dropdown, "TOPLEFT", 4, -4 - ((index - 1) * AUTOCOMPLETE_ROW_HEIGHT))
+        row:SetPoint("TOPRIGHT", dropdown, "TOPRIGHT", -4, -4 - ((index - 1) * AUTOCOMPLETE_ROW_HEIGHT))
+
+        row.selection = row:CreateTexture(nil, "BACKGROUND")
+        row.selection:SetAllPoints()
+        row.selection:SetColorTexture(0.16, 0.38, 0.62, 0.55)
+        row.selection:Hide()
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(18, 18)
+        row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
+
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+        row.name:SetPoint("RIGHT", row, "RIGHT", -58, 0)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+
+        row.itemID = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.itemID:SetPoint("RIGHT", row, "RIGHT", -5, 0)
+        row.itemID:SetWidth(50)
+        row.itemID:SetJustifyH("RIGHT")
+
+        row:SetScript("OnEnter", function() SF:SetItemAutocompleteSelection(rowIndex) end)
+        row:SetScript("OnClick", function() SF:AcceptItemAutocomplete(rowIndex) end)
+        dropdown.rows[index] = row
+    end
+
+    self.itemAutocomplete = dropdown
 end
 
 function SF:CreateItemRow(parent, index)
@@ -1394,7 +1540,42 @@ function SF:CreateMainWindow()
     self.itemInput = MakeEditBox(window, 280)
     self.itemInput:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -78)
     self.itemInput:SetText("")
-    self.itemInput:SetScript("OnEnterPressed", function(editBox) SF:AddItemFromControls(); editBox:ClearFocus() end)
+    self:CreateItemAutocomplete()
+    self.itemInput:SetScript("OnTextChanged", function(_, userInput)
+        if userInput then SF:QueueItemAutocomplete() else SF:HideItemAutocomplete() end
+    end)
+    self.itemInput:SetScript("OnEditFocusGained", function() SF:QueueItemAutocomplete() end)
+    self.itemInput:SetScript("OnEditFocusLost", function()
+        local generation = (SF.itemAutocompleteGeneration or 0) + 1
+        SF.itemAutocompleteGeneration = generation
+        local function HideIfStillUnfocused()
+            if generation == SF.itemAutocompleteGeneration and not SF.itemInput:HasFocus() then
+                SF:HideItemAutocomplete()
+            end
+        end
+        if C_Timer and C_Timer.After then C_Timer.After(0.1, HideIfStillUnfocused) else HideIfStillUnfocused() end
+    end)
+    self.itemInput:SetScript("OnArrowPressed", function(_, key)
+        if key == "UP" then SF:MoveItemAutocompleteSelection(-1) end
+        if key == "DOWN" then SF:MoveItemAutocompleteSelection(1) end
+    end)
+    self.itemInput:SetScript("OnTabPressed", function()
+        if SF.itemAutocomplete and SF.itemAutocomplete:IsShown() then
+            SF:AcceptItemAutocomplete()
+        end
+    end)
+    self.itemInput:SetScript("OnEscapePressed", function(editBox)
+        if SF.itemAutocomplete and SF.itemAutocomplete:IsShown() then
+            SF:HideItemAutocomplete()
+        else
+            editBox:ClearFocus()
+        end
+    end)
+    self.itemInput:SetScript("OnEnterPressed", function(editBox)
+        if SF.itemAutocomplete and SF.itemAutocomplete:IsShown() then SF:AcceptItemAutocomplete() end
+        SF:AddItemFromControls()
+        editBox:ClearFocus()
+    end)
     self.itemInput:SetScript("OnReceiveDrag", function()
         local cursorType, itemID, itemLink = GetCursorInfo()
         if cursorType == "item" then SF:SetItemInput(itemLink or itemID); ClearCursor() end
@@ -1438,7 +1619,7 @@ function SF:CreateMainWindow()
 
     local inputHint = window:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     inputHint:SetPoint("TOPLEFT", self.itemInput, "BOTTOMLEFT", 3, -2)
-    inputHint:SetText("Paste or drag an item link, then choose quantity and target mode.")
+    inputHint:SetText("Type an item name, paste or drag a link; arrows/Tab choose a match.")
 
     local listPanel = CreateFrame("Frame", nil, window, "InsetFrameTemplate")
     listPanel:SetPoint("TOPLEFT", window, "TOPLEFT", 12, -126)
