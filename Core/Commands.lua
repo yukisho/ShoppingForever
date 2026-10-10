@@ -7,6 +7,9 @@ local function ShowHelp()
     SF:Print("/sf own | buy - set the add mode")
     SF:Print("/sf history - show acquisition history for the selected list")
     SF:Print("/sf undo - undo the latest acquisition for the selected list")
+    SF:Print("/sf manage - open list-wide tools")
+    SF:Print("/sf bulk - paste several item goals at once")
+    SF:Print("/sf duplicate - copy the selected list with fresh progress")
     SF:Print("/sf share - open list sharing and full backup tools")
 end
 
@@ -44,6 +47,21 @@ local function HandleCommand(message)
     elseif command == "share" or command == "backup" then
         SF:ShowWindow()
         SF:ShowPortabilityWindow()
+    elseif command == "manage" then
+        SF:ShowWindow()
+        SF:ShowManageWindow()
+    elseif command == "bulk" then
+        SF:ShowWindow()
+        SF:ShowBulkAddWindow()
+    elseif command == "duplicate" then
+        local list = SF:GetCurrentList()
+        local ok, result = SF:DuplicateList(list and list.id)
+        if ok then
+            SF:ShowWindow()
+            SF:Print("Created " .. result.name .. " with fresh progress.")
+        else
+            SF:Print(result)
+        end
     elseif command == "add" then
         local itemInfo, quantity = argument:match("^(.-)%s+(%d+)%s*$")
         if not itemInfo or itemInfo == "" then itemInfo, quantity = argument, 1 end

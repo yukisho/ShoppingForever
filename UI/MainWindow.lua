@@ -170,6 +170,30 @@ function SF:InitializeDialogs()
             if ok then SF.statusText:SetText("Cleared " .. removed .. " history entries.") end
         end,
     }
+
+    StaticPopupDialogs.SHOPPING_FOREVER_CLEAR_COMPLETED = {
+        text = "Remove all completed items from |cffffffff%s|r? You can undo the latest cleanup.",
+        button1 = "Clear Completed",
+        button2 = CANCEL,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        showAlert = true,
+        preferredIndex = 3,
+        OnAccept = function(_, listID) SF:ClearCompletedFromUI(listID) end,
+    }
+
+    StaticPopupDialogs.SHOPPING_FOREVER_RESET_PROGRESS = {
+        text = "Reset all manual and Buy More progress for |cffffffff%s|r?",
+        button1 = "Reset Progress",
+        button2 = CANCEL,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        showAlert = true,
+        preferredIndex = 3,
+        OnAccept = function(_, listID) SF:ResetProgressFromUI(listID) end,
+    }
 end
 
 function SF:SaveWindowPosition()
@@ -816,6 +840,216 @@ function SF:CreatePortabilityWindow()
     close:SetScript("OnClick", function() window:Hide() end)
 end
 
+function SF:SetManageStatus(message, isError)
+    if self.manageWindow then
+        self.manageWindow.statusText:SetText((isError and "|cffff6666" or "|cff66ff99")
+            .. tostring(message or "") .. "|r")
+    end
+end
+
+function SF:RefreshManageWindow()
+    if not self.manageWindow then return end
+    local list = self:GetCurrentList()
+    self.manageWindow.listName:SetText(list and list.name or "No list selected")
+    local cleanup = self.db and self.db.lastCleanup
+    self.manageWindow.undoCleanupButton:SetEnabled(type(cleanup) == "table")
+end
+
+function SF:DuplicateCurrentListFromUI()
+    local list = self:GetCurrentList()
+    local ok, result = self:DuplicateList(list and list.id)
+    if not ok then self:SetManageStatus(result, true) return end
+    self:SetManageStatus("Created " .. result.name .. " with fresh progress.", false)
+    self:RefreshManageWindow()
+end
+
+function SF:ConfirmClearCompletedFromUI()
+    local list = self:GetCurrentList()
+    if list then StaticPopup_Show("SHOPPING_FOREVER_CLEAR_COMPLETED", list.name, nil, list.id) end
+end
+
+function SF:ClearCompletedFromUI(listID)
+    local ok, result = self:ClearCompletedItems(listID)
+    if not ok then self:SetManageStatus(result, true) return end
+    self:SetManageStatus("Removed " .. result .. " completed item" .. (result == 1 and "." or "s."), false)
+    self:RefreshManageWindow()
+end
+
+function SF:UndoCleanupFromUI()
+    local ok, count, list = self:UndoLastCleanup()
+    if not ok then self:SetManageStatus(count, true) return end
+    self:SetManageStatus("Restored " .. count .. " item" .. (count == 1 and " to " or "s to ")
+        .. list.name .. ".", false)
+    self:RefreshManageWindow()
+end
+
+function SF:ConfirmResetProgressFromUI()
+    local list = self:GetCurrentList()
+    if list then StaticPopup_Show("SHOPPING_FOREVER_RESET_PROGRESS", list.name, nil, list.id) end
+end
+
+function SF:ResetProgressFromUI(listID)
+    local ok, result = self:ResetListProgress(listID)
+    if not ok then self:SetManageStatus(result, true) return end
+    self:SetManageStatus("Reset progress on " .. result .. " item" .. (result == 1 and "." or "s."), false)
+end
+
+function SF:ToggleBulkTargetMode()
+    if not self.bulkAddWindow then return end
+    local window = self.bulkAddWindow
+    window.targetMode = window.targetMode == "buy" and "own" or "buy"
+    window.targetButton:SetText(window.targetMode == "own" and "Own Total" or "Buy More")
+end
+
+function SF:ApplyBulkAddFromUI()
+    local window = self.bulkAddWindow
+    if not window then return end
+    local ok, entries, quantity = self:BulkAddItems(window.input:GetText(), window.targetMode)
+    if not ok then
+        window.statusText:SetText("|cffff6666" .. tostring(entries) .. "|r")
+        return
+    end
+    window.input:SetText("")
+    window.statusText:SetText("|cff66ff99Added " .. quantity .. " across " .. entries
+        .. " item goal" .. (entries == 1 and "." or "s.") .. "|r")
+end
+
+function SF:ShowBulkAddWindow()
+    if not self.bulkAddWindow then return end
+    self.bulkAddWindow.statusText:SetText("")
+    self.bulkAddWindow:Show()
+    self.bulkAddWindow.input:SetFocus()
+end
+
+function SF:CreateBulkAddWindow()
+    local window = CreateFrame("Frame", "ShoppingForeverBulkAddFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    window:SetSize(620, 430)
+    window:SetPoint("CENTER", self.window, "CENTER", 0, 0)
+    window:SetFrameStrata("FULLSCREEN_DIALOG")
+    window:SetClampedToScreen(true)
+    window:Hide()
+    window.TitleText:SetText("Bulk Add Items")
+    window.targetMode = "buy"
+    table.insert(UISpecialFrames, window:GetName())
+    self.bulkAddWindow = window
+
+    local help = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -38)
+    help:SetPoint("TOPRIGHT", window, "TOPRIGHT", -18, -38)
+    help:SetJustifyH("LEFT")
+    help:SetText("One item link or item ID per line. Add a quantity with 2589 20 or 2589 x20. Lines beginning with # are ignored.")
+
+    local inputPanel = CreateFrame("Frame", nil, window, "InsetFrameTemplate")
+    inputPanel:SetPoint("TOPLEFT", window, "TOPLEFT", 16, -70)
+    inputPanel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -36, 104)
+    local scroll = CreateFrame("ScrollFrame", nil, window, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", inputPanel, "TOPLEFT", 8, -8)
+    scroll:SetPoint("BOTTOMRIGHT", inputPanel, "BOTTOMRIGHT", -26, 8)
+    window.scroll = scroll
+
+    window.input = CreateFrame("EditBox", nil, scroll)
+    window.input:SetMultiLine(true)
+    window.input:SetAutoFocus(false)
+    window.input:SetFontObject(ChatFontNormal)
+    window.input:SetWidth(535)
+    window.input:SetHeight(230)
+    window.input:SetMaxLetters(8000)
+    window.input:SetTextInsets(4, 4, 4, 4)
+    window.input:SetScript("OnEscapePressed", function(editBox) editBox:ClearFocus() end)
+    window.input:SetScript("OnTextChanged", function(editBox)
+        local text = editBox:GetText() or ""
+        local lineCount = 1
+        for _ in string.gmatch(text, "\n") do lineCount = lineCount + 1 end
+        editBox:SetHeight(math.max(230, (lineCount + math.floor(#text / 75)) * 16 + 12))
+    end)
+    scroll:SetScrollChild(window.input)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(frame, delta)
+        local nextValue = frame:GetVerticalScroll() - (delta * 32)
+        frame:SetVerticalScroll(math.max(0, math.min(frame:GetVerticalScrollRange(), nextValue)))
+    end)
+
+    local targetLabel = window:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    targetLabel:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 20, 69)
+    targetLabel:SetText("Add every line as:")
+    window.targetButton = MakeButton(window, "Buy More", 100)
+    window.targetButton:SetPoint("LEFT", targetLabel, "RIGHT", 10, 0)
+    window.targetButton:SetScript("OnClick", function() SF:ToggleBulkTargetMode() end)
+
+    window.statusText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    window.statusText:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 20, 46)
+    window.statusText:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -20, 46)
+    window.statusText:SetJustifyH("LEFT")
+
+    local add = MakeButton(window, "Add Items", 92)
+    add:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -112, 16)
+    add:SetScript("OnClick", function() SF:ApplyBulkAddFromUI() end)
+    local close = MakeButton(window, CLOSE, 88)
+    close:SetPoint("LEFT", add, "RIGHT", 8, 0)
+    close:SetScript("OnClick", function() window:Hide() end)
+end
+
+function SF:ShowManageWindow()
+    if not self.manageWindow then return end
+    self:SetManageStatus("", false)
+    self:RefreshManageWindow()
+    self.manageWindow:Show()
+end
+
+function SF:CreateManageWindow()
+    local window = CreateFrame("Frame", "ShoppingForeverManageFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    window:SetSize(470, 300)
+    window:SetPoint("CENTER", self.window, "CENTER", 0, 0)
+    window:SetFrameStrata("FULLSCREEN_DIALOG")
+    window:SetClampedToScreen(true)
+    window:Hide()
+    window.TitleText:SetText("Manage List")
+    table.insert(UISpecialFrames, window:GetName())
+    self.manageWindow = window
+
+    window.listName = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    window.listName:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -42)
+    window.listName:SetWidth(430)
+    window.listName:SetJustifyH("LEFT")
+
+    local help = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", window.listName, "BOTTOMLEFT", 0, -8)
+    help:SetWidth(430)
+    help:SetJustifyH("LEFT")
+    help:SetText("List-wide tools keep shopping setup separate from tracked progress.")
+
+    local bulk = MakeButton(window, "Bulk Add", 120, 28)
+    bulk:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -100)
+    bulk:SetScript("OnClick", function() SF:ShowBulkAddWindow() end)
+    local duplicate = MakeButton(window, "Duplicate List", 120, 28)
+    duplicate:SetPoint("LEFT", bulk, "RIGHT", 10, 0)
+    duplicate:SetScript("OnClick", function() SF:DuplicateCurrentListFromUI() end)
+    local share = MakeButton(window, "Share / Backup", 120, 28)
+    share:SetPoint("LEFT", duplicate, "RIGHT", 10, 0)
+    share:SetScript("OnClick", function() SF:ShowPortabilityWindow() end)
+
+    local clear = MakeButton(window, "Clear Completed", 120, 28)
+    clear:SetPoint("TOPLEFT", bulk, "BOTTOMLEFT", 0, -12)
+    clear:SetScript("OnClick", function() SF:ConfirmClearCompletedFromUI() end)
+    window.undoCleanupButton = MakeButton(window, "Undo Clear", 120, 28)
+    window.undoCleanupButton:SetPoint("LEFT", clear, "RIGHT", 10, 0)
+    window.undoCleanupButton:SetScript("OnClick", function() SF:UndoCleanupFromUI() end)
+    local reset = MakeButton(window, "Reset Progress", 120, 28)
+    reset:SetPoint("LEFT", window.undoCleanupButton, "RIGHT", 10, 0)
+    reset:SetScript("OnClick", function() SF:ConfirmResetProgressFromUI() end)
+
+    window.statusText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    window.statusText:SetPoint("TOPLEFT", clear, "BOTTOMLEFT", 0, -18)
+    window.statusText:SetPoint("TOPRIGHT", reset, "BOTTOMRIGHT", 0, -18)
+    window.statusText:SetJustifyH("LEFT")
+
+    local close = MakeButton(window, CLOSE, 88)
+    close:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 16)
+    close:SetScript("OnClick", function() window:Hide() end)
+end
+
 function SF:CreateMainWindow()
     self:InitializeDialogs()
     self.addTargetMode = "own"
@@ -989,9 +1223,9 @@ function SF:CreateMainWindow()
     undoButton:SetPoint("LEFT", historyButton, "RIGHT", 4, 0)
     undoButton:SetScript("OnClick", function() SF:UndoLatestFromUI() end)
 
-    local shareButton = MakeButton(window, "Share", 62, 22)
-    shareButton:SetPoint("LEFT", undoButton, "RIGHT", 4, 0)
-    shareButton:SetScript("OnClick", function() SF:ShowPortabilityWindow() end)
+    local manageButton = MakeButton(window, "Manage", 70, 22)
+    manageButton:SetPoint("LEFT", undoButton, "RIGHT", 4, 0)
+    manageButton:SetScript("OnClick", function() SF:ShowManageWindow() end)
 
     self.summaryText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     self.summaryText:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 330, 23)
@@ -1005,7 +1239,9 @@ function SF:CreateMainWindow()
 
     if hooksecurefunc and ChatEdit_InsertLink then
         hooksecurefunc("ChatEdit_InsertLink", function(link)
-            if SF.itemInput and SF.itemInput:HasFocus() and type(link) == "string" then
+            if SF.bulkAddWindow and SF.bulkAddWindow.input:HasFocus() and type(link) == "string" then
+                SF.bulkAddWindow.input:Insert(link)
+            elseif SF.itemInput and SF.itemInput:HasFocus() and type(link) == "string" then
                 SF:SetItemInput(link)
             end
         end)
@@ -1014,10 +1250,13 @@ function SF:CreateMainWindow()
     self:CreateItemEditor()
     self:CreateHistoryWindow()
     self:CreatePortabilityWindow()
+    self:CreateBulkAddWindow()
+    self:CreateManageWindow()
 
     self:RegisterCallback(function()
         if SF.window then SF:RefreshWindow() end
         if SF.historyWindow and SF.historyWindow:IsShown() then SF:RefreshHistoryWindow() end
+        if SF.manageWindow and SF.manageWindow:IsShown() then SF:RefreshManageWindow() end
     end)
 end
 

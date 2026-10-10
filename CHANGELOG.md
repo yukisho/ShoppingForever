@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 - Development
+
+- Added transactional bulk entry with duplicate-line grouping and preflight
+  validation.
+- Added list duplication that preserves setup while resetting progress and
+  character assignments.
+- Added confirmed completed-item cleanup with recovery of the latest cleanup.
+- Added whole-list progress reset and a consolidated Manage List window.
+- Added `/sf manage`, `/sf bulk`, and `/sf duplicate` commands.
+
 ## 0.4.0 - Development
 
 - Added checksummed SFL1 codes for exporting and importing individual lists.

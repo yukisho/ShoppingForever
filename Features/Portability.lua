@@ -238,23 +238,11 @@ function SF:DecodeListCode(code)
     return { name = name, note = note, items = items }
 end
 
-local function UniqueListName(database, requested, maximum)
-    local used = {}
-    for _, list in ipairs(database.lists) do used[string.lower(list.name)] = true end
-    if not used[string.lower(requested)] then return requested end
-    local base = requested
-    for index = 1, 999 do
-        local suffix = index == 1 and " Imported" or (" Imported " .. index)
-        local candidate = string.sub(base, 1, maximum - #suffix) .. suffix
-        if not used[string.lower(candidate)] then return candidate end
-    end
-end
-
 function SF:ImportListCode(code)
     if #self.db.lists >= self.Model.MAX_LISTS then return false, "The list limit has been reached." end
     local decoded, errorMessage = self:DecodeListCode(code)
     if not decoded then return false, errorMessage end
-    local name = UniqueListName(self.db, decoded.name, self.Model.MAX_LIST_NAME_LENGTH)
+    local name = self:GetUniqueListName(decoded.name, "Imported")
     if not name then return false, "A unique imported-list name could not be created." end
     local list = {
         id = self.db.nextListID,
@@ -415,7 +403,7 @@ function SF:BuildBackupSnapshot()
     local fields = {
         "schemaVersion", "nextListID", "nextItemID", "selectedListID",
         "selectedListByCharacter", "nextHistoryID", "lists", "characters",
-        "vendorCatalog", "history", "settings",
+        "vendorCatalog", "history", "settings", "lastCleanup",
     }
     local snapshot = {}
     for _, field in ipairs(fields) do snapshot[field] = DeepCopy(self.db[field]) end

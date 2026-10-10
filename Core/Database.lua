@@ -20,6 +20,7 @@ local function NewDatabase()
         nextHistoryID = 1,
         history = {},
         safetyBackups = {},
+        lastCleanup = nil,
         lists = { NewDefaultList() },
         characters = {},
         vendorCatalog = {},
@@ -72,6 +73,7 @@ local function NormalizeDatabase(database)
         and database.selectedListByCharacter or {}
     database.history = type(database.history) == "table" and database.history or {}
     database.safetyBackups = type(database.safetyBackups) == "table" and database.safetyBackups or {}
+    database.lastCleanup = type(database.lastCleanup) == "table" and database.lastCleanup or nil
     database.vendorCatalog = type(database.vendorCatalog) == "table" and database.vendorCatalog or {}
     database.settings = type(database.settings) == "table" and database.settings or {}
     database.settings.window = type(database.settings.window) == "table" and database.settings.window or {}
@@ -109,6 +111,38 @@ local function NormalizeDatabase(database)
         highestListID = 1
     end
     database.lists = normalizedLists
+
+    if database.lastCleanup then
+        local cleanup = database.lastCleanup
+        local cleanupListExists = false
+        for _, list in ipairs(database.lists) do
+            if list.id == tonumber(cleanup.listID) then cleanupListExists = true break end
+        end
+        local normalizedRemoved = {}
+        if cleanupListExists and type(cleanup.removed) == "table"
+            and #cleanup.removed <= SF.Model.MAX_ITEMS_PER_LIST
+        then
+            for _, removed in ipairs(cleanup.removed) do
+                if type(removed) == "table" then
+                    local item = NormalizeItem(removed.item, highestItemID + 1)
+                    local index = SF.util.ClampWholeNumber(removed.index, 1,
+                        SF.Model.MAX_ITEMS_PER_LIST, nil)
+                    if item and index then
+                        highestItemID = math.max(highestItemID, item.id)
+                        normalizedRemoved[#normalizedRemoved + 1] = { index = index, item = item }
+                    end
+                end
+            end
+        end
+        if #normalizedRemoved > 0 then
+            cleanup.listID = math.floor(tonumber(cleanup.listID))
+            cleanup.removed = normalizedRemoved
+            cleanup.createdAt = tonumber(cleanup.createdAt) or 0
+        else
+            database.lastCleanup = nil
+        end
+    end
+
     database.nextListID = math.max(highestListID + 1, tonumber(database.nextListID) or 1)
     database.nextItemID = math.max(highestItemID + 1, tonumber(database.nextItemID) or 1)
 
@@ -353,6 +387,9 @@ function SF:DeleteList(listID)
             end
             if self.currentCharacter and self.currentCharacter.guid then
                 self.db.selectedListByCharacter[self.currentCharacter.guid] = self.db.selectedListID
+            end
+            if self.db.lastCleanup and self.db.lastCleanup.listID == list.id then
+                self.db.lastCleanup = nil
             end
             self:NotifyChanged("listDeleted", { listID = list.id })
             return true
