@@ -15,9 +15,10 @@ end
 
 local function ExtractReagents(schematic)
     local result = {}
+    local complete = true
     local slots = type(schematic) == "table"
         and (schematic.reagentSlotSchematics or schematic.reagentSlots or schematic.reagents) or nil
-    if type(slots) ~= "table" then return result end
+    if type(slots) ~= "table" then return result, false end
 
     for _, slot in ipairs(slots) do
         local candidates = type(slot) == "table" and slot.reagents or nil
@@ -30,10 +31,14 @@ local function ExtractReagents(schematic)
                 or reagent.quantityRequired or reagent.quantity) or 0
             if itemID and quantity > 0 then
                 result[#result + 1] = { itemID = itemID, quantity = math.floor(quantity) }
+            else
+                complete = false
             end
+        else
+            complete = false
         end
     end
-    return result
+    return result, complete
 end
 
 local function GetProfessionName(info, skillLineID)
@@ -83,6 +88,7 @@ function SF:ScanCurrentCharacterRecipes()
                     local outputItemID = GetOutputItemID(outputInfo)
                     if outputItemID then
                         local schematic = SafeCall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+                        local reagents, fixedReagentsComplete = ExtractReagents(schematic)
                         recipes[tostring(recipeID)] = {
                             recipeID = recipeID,
                             outputItemID = outputItemID,
@@ -92,7 +98,8 @@ function SF:ScanCurrentCharacterRecipes()
                             professionID = professionID,
                             professionName = professionName,
                             skillLineID = skillLineID,
-                            reagents = ExtractReagents(schematic),
+                            reagents = reagents,
+                            fixedReagentsComplete = fixedReagentsComplete,
                             observedAt = time and time() or 0,
                         }
                     end
@@ -118,6 +125,15 @@ function SF:GetCraftingSources(itemID)
     if not self.db or not itemID then return result end
 
     local currentGUID = self.currentCharacter and self.currentCharacter.guid
+    local altByGUID = {}
+    local function Prefer(candidate, existing)
+        if not existing then return true end
+        if candidate.fixedReagentsComplete ~= existing.fixedReagentsComplete then
+            return candidate.fixedReagentsComplete
+        end
+        return (tonumber(candidate.recipeID) or math.huge)
+            < (tonumber(existing.recipeID) or math.huge)
+    end
     for guid, character in pairs(self.db.characters) do
         if type(character) == "table" and type(character.recipes) == "table" then
             for _, recipe in pairs(character.recipes) do
@@ -131,16 +147,23 @@ function SF:GetCraftingSources(itemID)
                         professionName = recipe.professionName,
                         skillLineID = recipe.skillLineID,
                         reagents = recipe.reagents or {},
+                        fixedReagentsComplete = recipe.fixedReagentsComplete ~= false,
                         observedAt = recipe.observedAt,
                     }
-                    if guid == currentGUID then result.current = result.current or source
-                    else result.alts[#result.alts + 1] = source end
+                    if guid == currentGUID then
+                        if Prefer(source, result.current) then result.current = source end
+                    elseif Prefer(source, altByGUID[guid]) then
+                        altByGUID[guid] = source
+                    end
                 end
             end
         end
     end
+    for _, source in pairs(altByGUID) do result.alts[#result.alts + 1] = source end
     table.sort(result.alts, function(left, right)
-        return tostring(left.characterName) < tostring(right.characterName)
+        local leftName, rightName = tostring(left.characterName), tostring(right.characterName)
+        if leftName ~= rightName then return leftName < rightName end
+        return tostring(left.characterGUID) < tostring(right.characterGUID)
     end)
     return result
 end
@@ -162,7 +185,11 @@ function SF:GetRecipeReagentPlan(item)
     if type(item) ~= "table" then return nil end
     local sources = self:GetCraftingSources(item.itemID)
     local source = sources.current or sources.alts[1]
-    if not source or type(source.reagents) ~= "table" or #source.reagents == 0 then return nil end
+    if not source or source.fixedReagentsComplete == false
+        or type(source.reagents) ~= "table" or #source.reagents == 0
+    then
+        return nil
+    end
 
     local _, remaining, completed = self:GetItemProgress(item)
     if completed then remaining = 0 end

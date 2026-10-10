@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 - Development
+
+- Added multi-level crafting plans for fixed-reagent recipes.
+- Added owned-material allocation across the plan so shared inputs are not
+  counted twice.
+- Added bounded recursion and dependency-cycle protection for cached recipes.
+- Added acquisition suggestions for final materials from the current
+  character, alternate crafters, observed vendors, or the Auction House.
+- Added a Crafting Plan window with craft steps and transactional base-material
+  expansion.
+
 ## 0.5.0 - Development
 
 - Added transactional bulk entry with duplicate-line grouping and preflight

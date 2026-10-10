@@ -2,7 +2,7 @@
 ## Title: Shopping Forever
 ## Notes: Account-wide shopping lists for the Auction House, vendors, and professions.
 ## Author: Gravvy
-## Version: 0.5.0
+## Version: 0.6.0
 ## SavedVariables: ShoppingForeverDB
 
 Core.lua
@@ -14,6 +14,7 @@ Integrations\AuctionHouse.lua
 Integrations\Merchant.lua
 Integrations\Crafting.lua
 Features\ListTools.lua
+Features\CraftingPlan.lua
 Features\Portability.lua
 UI\MainWindow.lua
 Core\Commands.lua

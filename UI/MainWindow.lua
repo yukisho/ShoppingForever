@@ -293,15 +293,15 @@ function SF:CreateItemRow(parent, index)
     row.minus:SetPoint("LEFT", row.progress, "RIGHT", 2, 0)
     row.plus = MakeButton(row, "+", 24, 22)
     row.plus:SetPoint("LEFT", row.minus, "RIGHT", 2, 0)
-    row.materials = MakeButton(row, "Mats", 48, 22)
+    row.materials = MakeButton(row, "Plan", 48, 22)
     row.materials:SetPoint("LEFT", row.plus, "RIGHT", 2, 0)
     row.materials:SetScript("OnEnter", function(self)
         if not row.item then return end
-        local plan = SF:GetRecipeReagentPlan(row.item)
+        local plan = SF:GetExpandedRecipePlan(row.item)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Add missing materials")
+        GameTooltip:SetText("Open crafting plan")
         if plan then
-            GameTooltip:AddLine("Adds uncovered reagents as Buy More entries.", 1, 1, 1, true)
+            GameTooltip:AddLine("Expands fixed intermediate recipes and accounts for owned materials.", 1, 1, 1, true)
             if not plan.currentCharacter then
                 GameTooltip:AddLine("Recipe known by " .. (plan.source.characterName or "an alternate character") .. ".",
                     0.5, 0.85, 1)
@@ -444,15 +444,8 @@ function SF:RefreshWindow()
             row.plus:SetScript("OnClick", function() SF:AdjustAcquired(item.id, 1) end)
             local reagentPlan = SF:GetRecipeReagentPlan(item)
             row.materials:SetShown(reagentPlan ~= nil and reagentPlan.crafts > 0)
-            row.materials:SetEnabled(reagentPlan ~= nil and reagentPlan.totalToAdd > 0)
-            row.materials:SetScript("OnClick", function()
-                local ok, result = SF:AddMissingRecipeReagents(item)
-                if ok then
-                    SF.statusText:SetText("Added " .. result .. " missing reagent" .. (result == 1 and "." or "s."))
-                else
-                    SF.statusText:SetText("|cffff6666" .. tostring(result) .. "|r")
-                end
-            end)
+            row.materials:SetEnabled(reagentPlan ~= nil and reagentPlan.crafts > 0)
+            row.materials:SetScript("OnClick", function() SF:OpenCraftingPlan(item) end)
             row.action:SetText(source.actionText)
             row.action:SetScript("OnClick", function() SF:PerformSourceAction(item) end)
             row.edit:SetScript("OnClick", function() SF:OpenItemEditor(item) end)
@@ -578,6 +571,253 @@ function SF:CreateItemEditor()
     local cancel = MakeButton(editor, CANCEL, 80)
     cancel:SetPoint("LEFT", save, "RIGHT", 8, 0)
     cancel:SetScript("OnClick", function() editor:Hide() end)
+end
+
+local function GetPlanMaterialSourceText(material)
+    local crafting, vendors = material.crafting, material.vendors
+    if crafting and crafting.current then return "Craft here" end
+    if crafting and crafting.alts and #crafting.alts > 0 then
+        return "Craft: " .. (crafting.alts[1].characterName or "alt")
+    end
+    if vendors and vendors.current then return "Vendor here" end
+    if vendors and vendors.known and #vendors.known > 0 then
+        return "Vendor: " .. (vendors.known[1].vendorName or "known")
+    end
+    return "Auction House"
+end
+
+function SF:RefreshCraftingPlanWindow()
+    local window = self.craftingPlanWindow
+    if not window or not window.itemEntryID then return end
+    local item = self:FindItem(window.itemEntryID)
+    local plan = item and self:GetExpandedRecipePlan(item) or nil
+    window.plan = plan
+    if not item or not plan then
+        window.itemName:SetText("Crafting plan unavailable")
+        window.summary:SetText("The item or its fixed recipe is no longer available.")
+        for _, row in ipairs(window.stepRows) do row:Hide() end
+        for _, row in ipairs(window.materialRows) do row:Hide() end
+        window.moreSteps:SetText("")
+        window.moreMaterials:SetText("")
+        window.emptyMaterials:Hide()
+        window.previousStepButton:SetEnabled(false)
+        window.nextStepButton:SetEnabled(false)
+        window.previousMaterialButton:SetEnabled(false)
+        window.nextMaterialButton:SetEnabled(false)
+        window.addButton:SetEnabled(false)
+        window.openButton:SetEnabled(false)
+        return
+    end
+
+    window.itemName:SetText(item.itemLink or item.name)
+    local crafter = plan.currentCharacter and "this character"
+        or (plan.source.characterName or "an alternate character")
+    window.summary:SetText("Crafter: " .. crafter .. " · " .. #plan.steps .. " craft step"
+        .. (#plan.steps == 1 and "" or "s") .. " · " .. plan.totalMissing .. " material"
+        .. (plan.totalMissing == 1 and "" or "s") .. " missing")
+
+    local maximumStepOffset = math.floor(math.max(0, #plan.steps - 1) / #window.stepRows)
+        * #window.stepRows
+    window.stepOffset = math.max(0, math.min(window.stepOffset or 0, maximumStepOffset))
+    for index, row in ipairs(window.stepRows) do
+        local step = plan.steps[window.stepOffset + index]
+        if step then
+            row:Show()
+            row.name:SetText(string.rep("  ", step.depth) .. (step.itemLink or step.name))
+            local ownedText = step.ownedUsed > 0 and (" · " .. step.ownedUsed .. " owned") or ""
+            row.detail:SetText(step.crafts .. " craft" .. (step.crafts == 1 and "" or "s")
+                .. " for " .. step.needed .. ownedText)
+        else
+            row:Hide()
+        end
+    end
+    local shownStepEnd = math.min(#plan.steps, window.stepOffset + #window.stepRows)
+    window.moreSteps:SetText(#plan.steps > #window.stepRows
+        and ("Showing steps " .. (window.stepOffset + 1) .. "-" .. shownStepEnd
+            .. " of " .. #plan.steps) or "")
+    window.previousStepButton:SetEnabled(window.stepOffset > 0)
+    window.nextStepButton:SetEnabled(window.stepOffset < maximumStepOffset)
+
+    local maximumMaterialOffset = math.floor(math.max(0, #plan.materials - 1) / #window.materialRows)
+        * #window.materialRows
+    window.materialOffset = math.max(0, math.min(window.materialOffset or 0, maximumMaterialOffset))
+    for index, row in ipairs(window.materialRows) do
+        local material = plan.materials[window.materialOffset + index]
+        if material then
+            row:Show()
+            row.name:SetText(material.itemLink or material.name)
+            local detail = material.owned .. "/" .. material.required .. " owned"
+            if material.missing > 0 then detail = detail .. " · " .. material.missing .. " missing" end
+            if material.alreadyListed > 0 then detail = detail .. " · " .. material.alreadyListed .. " listed" end
+            row.detail:SetText(detail)
+            row.source:SetText(GetPlanMaterialSourceText(material))
+        else
+            row:Hide()
+        end
+    end
+    local shownMaterialEnd = math.min(#plan.materials, window.materialOffset + #window.materialRows)
+    window.moreMaterials:SetText(#plan.materials > #window.materialRows
+        and ("Showing materials " .. (window.materialOffset + 1) .. "-" .. shownMaterialEnd
+            .. " of " .. #plan.materials) or "")
+    window.previousMaterialButton:SetEnabled(window.materialOffset > 0)
+    window.nextMaterialButton:SetEnabled(window.materialOffset < maximumMaterialOffset)
+    window.emptyMaterials:SetShown(#plan.materials == 0)
+    window.addButton:SetEnabled(plan.totalToAdd > 0)
+    window.openButton:SetEnabled(plan.currentCharacter and plan.remaining > 0)
+end
+
+function SF:OpenCraftingPlan(item)
+    if not self.craftingPlanWindow or not item then return end
+    self.craftingPlanWindow.itemEntryID = item.id
+    self.craftingPlanWindow.stepOffset = 0
+    self.craftingPlanWindow.materialOffset = 0
+    self.craftingPlanWindow.statusText:SetText("")
+    self:RefreshCraftingPlanWindow()
+    self.craftingPlanWindow:Show()
+end
+
+function SF:ScrollCraftingPlanSteps(amount)
+    local window = self.craftingPlanWindow
+    if not window or not window.plan then return end
+    local maximum = math.floor(math.max(0, #window.plan.steps - 1) / #window.stepRows)
+        * #window.stepRows
+    window.stepOffset = math.max(0, math.min(maximum, (window.stepOffset or 0) + amount))
+    self:RefreshCraftingPlanWindow()
+end
+
+function SF:ScrollCraftingPlanMaterials(amount)
+    local window = self.craftingPlanWindow
+    if not window or not window.plan then return end
+    local maximum = math.floor(math.max(0, #window.plan.materials - 1) / #window.materialRows)
+        * #window.materialRows
+    window.materialOffset = math.max(0, math.min(maximum, (window.materialOffset or 0) + amount))
+    self:RefreshCraftingPlanWindow()
+end
+
+function SF:AddCraftingPlanMaterialsFromUI()
+    local window = self.craftingPlanWindow
+    local item = window and window.itemEntryID and self:FindItem(window.itemEntryID) or nil
+    local ok, quantity, entries = self:AddExpandedRecipeMaterials(item)
+    if not ok then
+        window.statusText:SetText("|cffff6666" .. tostring(quantity) .. "|r")
+        return
+    end
+    window.statusText:SetText("|cff66ff99Added " .. quantity .. " across " .. entries
+        .. " material goal" .. (entries == 1 and "." or "s.") .. "|r")
+    self:RefreshCraftingPlanWindow()
+end
+
+function SF:OpenCraftingPlanRecipeFromUI()
+    local window = self.craftingPlanWindow
+    local plan = window and window.plan
+    if not plan then return end
+    if plan.currentCharacter then
+        self:OpenCraftingRecipe(plan.source)
+    else
+        self:Print("Switch to " .. (plan.source.characterName or "the recorded crafter")
+            .. " to craft this item.")
+    end
+end
+
+function SF:CreateCraftingPlanWindow()
+    local window = CreateFrame("Frame", "ShoppingForeverCraftingPlanFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    window:SetSize(660, 520)
+    window:SetPoint("CENTER", self.window, "CENTER", 0, 0)
+    window:SetFrameStrata("FULLSCREEN_DIALOG")
+    window:SetClampedToScreen(true)
+    window:Hide()
+    window.TitleText:SetText("Crafting Plan")
+    table.insert(UISpecialFrames, window:GetName())
+    self.craftingPlanWindow = window
+
+    window.itemName = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    window.itemName:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -38)
+    window.itemName:SetWidth(620)
+    window.itemName:SetJustifyH("LEFT")
+    window.summary = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    window.summary:SetPoint("TOPLEFT", window.itemName, "BOTTOMLEFT", 0, -6)
+    window.summary:SetWidth(620)
+    window.summary:SetJustifyH("LEFT")
+
+    local stepsHeader = window:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    stepsHeader:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -82)
+    stepsHeader:SetText("Craft steps")
+    window.previousStepButton = MakeButton(window, "<", 28, 20)
+    window.previousStepButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", -52, -77)
+    window.previousStepButton:SetScript("OnClick", function() SF:ScrollCraftingPlanSteps(-6) end)
+    window.nextStepButton = MakeButton(window, ">", 28, 20)
+    window.nextStepButton:SetPoint("LEFT", window.previousStepButton, "RIGHT", 4, 0)
+    window.nextStepButton:SetScript("OnClick", function() SF:ScrollCraftingPlanSteps(6) end)
+    window.stepRows = {}
+    for index = 1, 6 do
+        local row = CreateFrame("Frame", nil, window)
+        row:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -101 - ((index - 1) * 25))
+        row:SetPoint("TOPRIGHT", window, "TOPRIGHT", -18, -101 - ((index - 1) * 25))
+        row:SetHeight(23)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.name:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.name:SetWidth(400)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.detail:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.detail:SetWidth(210)
+        row.detail:SetJustifyH("RIGHT")
+        window.stepRows[index] = row
+    end
+    window.moreSteps = window:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    window.moreSteps:SetPoint("TOPLEFT", window, "TOPLEFT", 28, -253)
+
+    local materialsHeader = window:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    materialsHeader:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -278)
+    materialsHeader:SetText("Materials and acquisition alternatives")
+    window.previousMaterialButton = MakeButton(window, "<", 28, 20)
+    window.previousMaterialButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", -52, -273)
+    window.previousMaterialButton:SetScript("OnClick", function() SF:ScrollCraftingPlanMaterials(-6) end)
+    window.nextMaterialButton = MakeButton(window, ">", 28, 20)
+    window.nextMaterialButton:SetPoint("LEFT", window.previousMaterialButton, "RIGHT", 4, 0)
+    window.nextMaterialButton:SetScript("OnClick", function() SF:ScrollCraftingPlanMaterials(6) end)
+    window.materialRows = {}
+    for index = 1, 6 do
+        local row = CreateFrame("Frame", nil, window)
+        row:SetPoint("TOPLEFT", window, "TOPLEFT", 18, -297 - ((index - 1) * 25))
+        row:SetPoint("TOPRIGHT", window, "TOPRIGHT", -18, -297 - ((index - 1) * 25))
+        row:SetHeight(23)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.name:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.name:SetWidth(235)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.detail = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.detail:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
+        row.detail:SetWidth(220)
+        row.detail:SetJustifyH("LEFT")
+        row.source = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.source:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.source:SetWidth(150)
+        row.source:SetJustifyH("RIGHT")
+        window.materialRows[index] = row
+    end
+    window.moreMaterials = window:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    window.moreMaterials:SetPoint("TOPLEFT", window, "TOPLEFT", 28, -449)
+    window.emptyMaterials = window:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    window.emptyMaterials:SetPoint("TOPLEFT", window, "TOPLEFT", 28, -305)
+    window.emptyMaterials:SetText("No additional materials are needed.")
+
+    window.statusText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    window.statusText:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 18, 48)
+    window.statusText:SetWidth(360)
+    window.statusText:SetJustifyH("LEFT")
+    window.openButton = MakeButton(window, "Open Recipe", 96)
+    window.openButton:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -302, 16)
+    window.openButton:SetScript("OnClick", function() SF:OpenCraftingPlanRecipeFromUI() end)
+    window.addButton = MakeButton(window, "Add Missing", 96)
+    window.addButton:SetPoint("LEFT", window.openButton, "RIGHT", 8, 0)
+    window.addButton:SetScript("OnClick", function() SF:AddCraftingPlanMaterialsFromUI() end)
+    local close = MakeButton(window, CLOSE, 88)
+    close:SetPoint("LEFT", window.addButton, "RIGHT", 8, 0)
+    close:SetScript("OnClick", function() window:Hide() end)
 end
 
 local function FormatHistoryTime(timestamp)
@@ -1248,6 +1488,7 @@ function SF:CreateMainWindow()
     end
 
     self:CreateItemEditor()
+    self:CreateCraftingPlanWindow()
     self:CreateHistoryWindow()
     self:CreatePortabilityWindow()
     self:CreateBulkAddWindow()
@@ -1256,6 +1497,9 @@ function SF:CreateMainWindow()
     self:RegisterCallback(function()
         if SF.window then SF:RefreshWindow() end
         if SF.historyWindow and SF.historyWindow:IsShown() then SF:RefreshHistoryWindow() end
+        if SF.craftingPlanWindow and SF.craftingPlanWindow:IsShown() then
+            SF:RefreshCraftingPlanWindow()
+        end
         if SF.manageWindow and SF.manageWindow:IsShown() then SF:RefreshManageWindow() end
     end)
 end

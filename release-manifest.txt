@@ -8,6 +8,7 @@ Integrations/AuctionHouse.lua
 Integrations/Merchant.lua
 Integrations/Crafting.lua
 Features/ListTools.lua
+Features/CraftingPlan.lua
 Features/Portability.lua
 UI/MainWindow.lua
 Core/Commands.lua
