@@ -97,7 +97,7 @@ function SF:InitializeMerchantIntegration()
     frame:SetScript("OnEvent", function(_, event)
         if event == "MERCHANT_SHOW" then
             SF:ScanMerchant()
-            if SF.db.settings.autoOpenMerchant then SF:ShowWindowForSource("merchant") end
+            if SF:IsAutoOpenEnabled("merchant") then SF:ShowWindowForSource("merchant") end
         elseif event == "MERCHANT_UPDATE" then
             SF:ScanMerchant()
         elseif event == "MERCHANT_CLOSED" then

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 - Development
+
+- Made the current list name a direct, paged list selector while preserving the
+  previous/next list buttons.
+- Added `/sf lists` as a shortcut to the list selector.
+- Added persisted auto-open toggles for the Auction House, vendors, and
+  profession windows to Manage List and Settings.
+- Added strict normalization and tested accessors for auto-open preferences.
+
 ## 0.7.0 - Development
 
 - Added item-name autocomplete to the main item field using the required

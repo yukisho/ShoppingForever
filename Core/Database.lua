@@ -1,5 +1,11 @@
 local _, SF = ...
 
+local AUTO_OPEN_SETTING_KEYS = {
+    auction = "autoOpenAuctionHouse",
+    merchant = "autoOpenMerchant",
+    profession = "autoOpenProfession",
+}
+
 local function NewDefaultList()
     return {
         id = 1,
@@ -180,6 +186,9 @@ local function NormalizeDatabase(database)
     for key, value in pairs(defaults) do
         if database.settings[key] == nil then database.settings[key] = value end
     end
+    for _, key in pairs(AUTO_OPEN_SETTING_KEYS) do
+        if type(database.settings[key]) ~= "boolean" then database.settings[key] = true end
+    end
     local windowDefaults = defaults.window
     for key, value in pairs(windowDefaults) do
         if database.settings.window[key] == nil then database.settings.window[key] = value end
@@ -200,6 +209,19 @@ function SF:EnsureDatabase()
     end
     NormalizeDatabase(database)
     self.db = database
+end
+
+function SF:IsAutoOpenEnabled(source)
+    local key = AUTO_OPEN_SETTING_KEYS[source]
+    return key ~= nil and self.db and self.db.settings[key] == true
+end
+
+function SF:SetAutoOpenEnabled(source, enabled)
+    local key = AUTO_OPEN_SETTING_KEYS[source]
+    if not key then return false, "Unknown auto-open source." end
+    self.db.settings[key] = enabled == true
+    self:NotifyChanged("autoOpenChanged", { source = source, enabled = self.db.settings[key] })
+    return true, self.db.settings[key]
 end
 
 function SF:GetLists()

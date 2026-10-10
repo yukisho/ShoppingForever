@@ -2,7 +2,7 @@ local ADDON_NAME, SF = ...
 
 SF.name = ADDON_NAME
 SF.displayName = "Shopping Forever"
-SF.version = "0.7.0"
+SF.version = "0.8.0"
 SF.schemaVersion = 5
 SF.callbacks = {}
 

@@ -319,7 +319,7 @@ function SF:InitializeCraftingIntegration()
         if event == "TRADE_SKILL_SHOW" then
             SF.tradeSkillOpen = true
             SF:ScanCurrentCharacterRecipes()
-            if SF.db.settings.autoOpenProfession then SF:ShowWindowForSource("profession") end
+            if SF:IsAutoOpenEnabled("profession") then SF:ShowWindowForSource("profession") end
         elseif event == "TRADE_SKILL_LIST_UPDATE" then
             SF:ScanCurrentCharacterRecipes()
         elseif event == "SKILL_LINES_CHANGED" and SF.tradeSkillOpen then

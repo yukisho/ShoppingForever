@@ -38,7 +38,7 @@ function SF:InitializeAuctionHouseIntegration()
 
     frame:SetScript("OnEvent", function(_, event, ...)
         if event == "AUCTION_HOUSE_SHOW" then
-            if SF.db.settings.autoOpenAuctionHouse then SF:ShowWindowForSource("auction") end
+            if SF:IsAutoOpenEnabled("auction") then SF:ShowWindowForSource("auction") end
         elseif event == "AUCTION_HOUSE_CLOSED" then
             SF:HideWindowForSource("auction")
         elseif event == "COMMODITY_PURCHASED" then

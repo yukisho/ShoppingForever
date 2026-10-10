@@ -4,6 +4,7 @@ local ROW_COUNT = 10
 local ROW_HEIGHT = 32
 local AUTOCOMPLETE_ROW_COUNT = 8
 local AUTOCOMPLETE_ROW_HEIGHT = 24
+local LIST_PICKER_ROW_COUNT = 10
 local SOURCE_ORDER = { "any", "auction", "vendor", "craft" }
 local SOURCE_LABELS = {
     any = "Automatic",
@@ -37,6 +38,16 @@ local function MakeEditBox(parent, width, height)
     editBox:SetTextInsets(6, 6, 0, 0)
     editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     return editBox
+end
+
+local function MakeCheckButton(parent, text, width)
+    local button = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    button:SetSize(24, 24)
+    button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    button.label:SetPoint("LEFT", button, "RIGHT", 2, 0)
+    button.label:SetText(text)
+    button:SetHitRectInsets(0, -math.max(0, (width or 120) - 24), 0, 0)
+    return button
 end
 
 local function PopupEditBox(dialog)
@@ -550,7 +561,7 @@ function SF:RefreshWindow()
     local list = self:GetCurrentList()
     if not list then return end
 
-    self.listNameText:SetText(list.name)
+    self.listNameButton:SetText(list.name)
     self.listCountText:SetText(#self.db.lists .. " list" .. (#self.db.lists == 1 and "" or "s"))
     self.listAssignmentText:SetText("For: " .. self:GetListAssignmentText(list))
     self.listNoteText:SetText(list.note ~= "" and list.note or "No note")
@@ -1232,6 +1243,127 @@ function SF:CreatePortabilityWindow()
     close:SetScript("OnClick", function() window:Hide() end)
 end
 
+function SF:SelectListFromPicker(listID)
+    local ok, result = self:SelectList(listID)
+    if not ok then
+        self:Print(result)
+        return
+    end
+    self.itemOffset = 0
+    if self.listPickerWindow then self.listPickerWindow:Hide() end
+end
+
+function SF:RefreshListPicker()
+    local window = self.listPickerWindow
+    if not window then return end
+
+    local lists = self:GetLists()
+    local maximumOffset = math.max(0, #lists - LIST_PICKER_ROW_COUNT)
+    window.offset = math.max(0, math.min(window.offset or 0, maximumOffset))
+    local current = self:GetCurrentList()
+
+    for rowIndex, row in ipairs(window.rows) do
+        local list = lists[window.offset + rowIndex]
+        row.list = list
+        if list then
+            local selected = current and current.id == list.id
+            local itemCount = #list.items
+            row:SetText((selected and ">  " or "") .. list.name .. "  —  " .. itemCount
+                .. " item" .. (itemCount == 1 and "" or "s"))
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+
+    local first = #lists == 0 and 0 or window.offset + 1
+    local last = math.min(#lists, window.offset + LIST_PICKER_ROW_COUNT)
+    window.pageText:SetText(first .. "–" .. last .. " of " .. #lists)
+    window.previousButton:SetEnabled(window.offset > 0)
+    window.nextButton:SetEnabled(window.offset < maximumOffset)
+end
+
+function SF:ScrollListPicker(direction)
+    if not self.listPickerWindow then return end
+    self.listPickerWindow.offset = (self.listPickerWindow.offset or 0)
+        + (direction * LIST_PICKER_ROW_COUNT)
+    self:RefreshListPicker()
+end
+
+function SF:ShowListPicker()
+    local window = self.listPickerWindow
+    if not window then return end
+
+    local current = self:GetCurrentList()
+    window.offset = 0
+    for index, list in ipairs(self:GetLists()) do
+        if current and list.id == current.id then
+            window.offset = math.floor((index - 1) / LIST_PICKER_ROW_COUNT) * LIST_PICKER_ROW_COUNT
+            break
+        end
+    end
+    self:RefreshListPicker()
+    window:Show()
+end
+
+function SF:CreateListPickerWindow()
+    local window = CreateFrame("Frame", "ShoppingForeverListPickerFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    window:SetSize(470, 390)
+    window:SetPoint("CENTER", self.window, "CENTER", 0, 0)
+    window:SetFrameStrata("FULLSCREEN_DIALOG")
+    window:SetClampedToScreen(true)
+    window:EnableMouseWheel(true)
+    window:SetScript("OnMouseWheel", function(_, delta) SF:ScrollListPicker(delta > 0 and -1 or 1) end)
+    window:Hide()
+    window.TitleText:SetText("Choose Shopping List")
+    table.insert(UISpecialFrames, window:GetName())
+    self.listPickerWindow = window
+
+    local help = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    help:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -40)
+    help:SetText("Select a list directly instead of cycling through them one at a time.")
+
+    window.rows = {}
+    for index = 1, LIST_PICKER_ROW_COUNT do
+        local row = MakeButton(window, "", 420, 26)
+        row:SetPoint("TOPLEFT", window, "TOPLEFT", 24, -62 - ((index - 1) * 27))
+        local fontString = row:GetFontString()
+        if fontString then fontString:SetJustifyH("LEFT") end
+        row:SetScript("OnClick", function(button)
+            if button.list then SF:SelectListFromPicker(button.list.id) end
+        end)
+        row:SetScript("OnEnter", function(button)
+            if not button.list then return end
+            GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+            GameTooltip:SetText(button.list.name)
+            GameTooltip:AddLine("For: " .. SF:GetListAssignmentText(button.list), 1, 1, 1, true)
+            if button.list.note and button.list.note ~= "" then
+                GameTooltip:AddLine(button.list.note, 0.8, 0.8, 0.8, true)
+            end
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        window.rows[index] = row
+    end
+
+    window.previousButton = MakeButton(window, "Previous", 80, 22)
+    window.previousButton:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 24, 18)
+    window.previousButton:SetScript("OnClick", function() SF:ScrollListPicker(-1) end)
+    window.nextButton = MakeButton(window, "Next", 80, 22)
+    window.nextButton:SetPoint("LEFT", window.previousButton, "RIGHT", 6, 0)
+    window.nextButton:SetScript("OnClick", function() SF:ScrollListPicker(1) end)
+
+    window.pageText = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    window.pageText:SetPoint("LEFT", window.nextButton, "RIGHT", 12, 0)
+    window.pageText:SetWidth(100)
+    window.pageText:SetJustifyH("LEFT")
+
+    local close = MakeButton(window, CLOSE, 88, 22)
+    close:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 18)
+    close:SetScript("OnClick", function() window:Hide() end)
+end
+
 function SF:SetManageStatus(message, isError)
     if self.manageWindow then
         self.manageWindow.statusText:SetText((isError and "|cffff6666" or "|cff66ff99")
@@ -1245,6 +1377,19 @@ function SF:RefreshManageWindow()
     self.manageWindow.listName:SetText(list and list.name or "No list selected")
     local cleanup = self.db and self.db.lastCleanup
     self.manageWindow.undoCleanupButton:SetEnabled(type(cleanup) == "table")
+    for source, checkbox in pairs(self.manageWindow.autoOpenChecks) do
+        checkbox:SetChecked(self:IsAutoOpenEnabled(source))
+    end
+end
+
+function SF:SetAutoOpenFromUI(source, enabled, label)
+    local ok, result = self:SetAutoOpenEnabled(source, enabled)
+    if not ok then
+        self:SetManageStatus(result, true)
+        self:RefreshManageWindow()
+        return
+    end
+    self:SetManageStatus(label .. " auto-open " .. (result and "enabled." or "disabled."), false)
 end
 
 function SF:DuplicateCurrentListFromUI()
@@ -1392,12 +1537,12 @@ end
 function SF:CreateManageWindow()
     local window = CreateFrame("Frame", "ShoppingForeverManageFrame", UIParent,
         "BasicFrameTemplateWithInset")
-    window:SetSize(470, 300)
+    window:SetSize(470, 360)
     window:SetPoint("CENTER", self.window, "CENTER", 0, 0)
     window:SetFrameStrata("FULLSCREEN_DIALOG")
     window:SetClampedToScreen(true)
     window:Hide()
-    window.TitleText:SetText("Manage List")
+    window.TitleText:SetText("Manage List and Settings")
     table.insert(UISpecialFrames, window:GetName())
     self.manageWindow = window
 
@@ -1437,6 +1582,26 @@ function SF:CreateManageWindow()
     window.statusText:SetPoint("TOPRIGHT", reset, "BOTTOMRIGHT", 0, -18)
     window.statusText:SetJustifyH("LEFT")
 
+    local autoOpenTitle = window:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    autoOpenTitle:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -218)
+    autoOpenTitle:SetText("Open Shopping Forever automatically at:")
+
+    window.autoOpenChecks = {}
+    local autoOpenOptions = {
+        { source = "auction", label = "Auction House", x = 20, width = 135 },
+        { source = "merchant", label = "Vendors", x = 172, width = 100 },
+        { source = "profession", label = "Professions", x = 292, width = 120 },
+    }
+    for _, option in ipairs(autoOpenOptions) do
+        local source, label = option.source, option.label
+        local checkbox = MakeCheckButton(window, option.label, option.width)
+        checkbox:SetPoint("TOPLEFT", window, "TOPLEFT", option.x, -238)
+        checkbox:SetScript("OnClick", function(button)
+            SF:SetAutoOpenFromUI(source, button:GetChecked() == true, label)
+        end)
+        window.autoOpenChecks[source] = checkbox
+    end
+
     local close = MakeButton(window, CLOSE, 88)
     close:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 16)
     close:SetScript("OnClick", function() window:Hide() end)
@@ -1470,13 +1635,20 @@ function SF:CreateMainWindow()
     previousList:SetPoint("TOPLEFT", window, "TOPLEFT", 12, -32)
     previousList:SetScript("OnClick", function() SF:CycleList(-1) end)
 
-    self.listNameText = window:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    self.listNameText:SetPoint("LEFT", previousList, "RIGHT", 7, 0)
-    self.listNameText:SetWidth(190)
-    self.listNameText:SetJustifyH("LEFT")
+    self.listNameButton = MakeButton(window, "", 190)
+    self.listNameButton:SetPoint("LEFT", previousList, "RIGHT", 7, 0)
+    self.listNameButton:SetScript("OnClick", function() SF:ShowListPicker() end)
+    self.listNameButton:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_TOP")
+        GameTooltip:SetText("Choose shopping list")
+        GameTooltip:AddLine("Open a direct list selector. The arrow buttons still cycle one list at a time.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    self.listNameButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local nextList = MakeButton(window, ">", 26)
-    nextList:SetPoint("LEFT", self.listNameText, "RIGHT", 2, 0)
+    nextList:SetPoint("LEFT", self.listNameButton, "RIGHT", 2, 0)
     nextList:SetScript("OnClick", function() SF:CycleList(1) end)
 
     local newList = MakeButton(window, "New", 58)
@@ -1684,6 +1856,7 @@ function SF:CreateMainWindow()
     self:CreateHistoryWindow()
     self:CreatePortabilityWindow()
     self:CreateBulkAddWindow()
+    self:CreateListPickerWindow()
     self:CreateManageWindow()
 
     self:RegisterCallback(function()
@@ -1693,6 +1866,7 @@ function SF:CreateMainWindow()
             SF:RefreshCraftingPlanWindow()
         end
         if SF.manageWindow and SF.manageWindow:IsShown() then SF:RefreshManageWindow() end
+        if SF.listPickerWindow and SF.listPickerWindow:IsShown() then SF:RefreshListPicker() end
     end)
 end
 

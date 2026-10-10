@@ -4,6 +4,7 @@ local function ShowHelp()
     SF:Print("/sf - open or close Shopping Forever")
     SF:Print("/sf add ITEM_LINK [QUANTITY] - add an item to the selected list")
     SF:Print("/sf new NAME - create and select a list")
+    SF:Print("/sf lists - choose a shopping list directly")
     SF:Print("/sf own | buy - set the add mode")
     SF:Print("/sf history - show acquisition history for the selected list")
     SF:Print("/sf undo - undo the latest acquisition for the selected list")
@@ -27,6 +28,9 @@ local function HandleCommand(message)
     elseif command == "new" then
         local ok, result = SF:AddList(argument)
         if not ok then SF:Print(result) else SF:ShowWindow() end
+    elseif command == "list" or command == "lists" then
+        SF:ShowWindow()
+        SF:ShowListPicker()
     elseif command == "own" or command == "buy" then
         SF.addTargetMode = command
         if SF.targetModeButton then
